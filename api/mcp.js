@@ -10,6 +10,8 @@ import { z } from 'zod';
 const BASE = process.env.PUBLIC_BASE_URL || 'https://hackathon-ar-creator.vercel.app';
 const SECRET = process.env.CARD_SECRET || 'removed';
 const MODEL_API_KEY = process.env.MODEL_API_KEY || '';
+const HACKARS_API_KEY = process.env['HACKARS_API_KEY'] || '';
+const HACKARS_API_URL = process.env.HACKARS_API_URL || 'https://hackar-s.com/api/project-create';
 const API_BASE = 'https://api.meta.ai/v1';
 const SPARK_MODEL = 'muse-spark-1.3';
 const IMAGE_MODEL = 'muse-image-1.0';
@@ -506,18 +508,58 @@ function buildServer() {
 
   server.registerTool('publish_ar', {
     title: 'ARを公開する',
-    description: '作ったARの公開URLとQR用リンクを返す。compose_ar のあとに呼ぶ。返ってきたURLはそのままユーザーに見せる。',
+    description: '作ったARを公開する。HACKAR:S に実プロジェクトを作成できた場合はそのURLを、できない場合は自前ビューアのURLを返す。compose_ar のあとに呼ぶ。返ってきたURLはそのままユーザーに見せる。',
     inputSchema: { nickname: nickArg, card: cardArg },
-    annotations: { title: 'ARを公開する', readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    annotations: { title: 'ARを公開する', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ nickname, card }) => {
     const u = getU(nickname, card);
     if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に compose_ar で組み立ててね。' }, memo(u)], structuredContent: { needsCompose: true, card: packCard(u) } };
-    const url = `${BASE}/ar/${u.arTok}`;
+    const builtinUrl = `${BASE}/ar/${u.arTok}`;
+    // HACKAR:S 連携: キーが設定されていて素材画像が手元にあれば、HACKAR:S に
+    // 実プロジェクトを作成して、その /slam-ar/ URL を公開リンクにする。
+    // 失敗したら従来の自前ビューアにフォールバックする（公開が止まらない）。
+    let hackars = null;
+    if (HACKARS_API_KEY && !u.hackarsUrl) {
+      try {
+        const p = readTok(u.arTok) || {};
+        const img = p.im ? imgs.get(p.im) : null;
+        if (img?.buf) {
+          const r = await fetch(HACKARS_API_URL, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-api-key': HACKARS_API_KEY },
+            body: JSON.stringify({
+              name: p.ti || 'Muse AR',
+              effect: p.e || 'petal',
+              color: p.c || '#FFC2D6',
+              imageBase64: img.buf.toString('base64'),
+              imageContentType: img.type === 'image/png' ? 'image/png' : 'image/webp',
+            }),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (r.ok && j.url) {
+            hackars = j;
+            u.hackarsUrl = j.url; u.hackarsProjectId = j.projectId || null;
+            console.log('[AR] hackars-created', JSON.stringify({ nickname: u.nickname, projectId: j.projectId }));
+          } else {
+            console.log('[AR] hackars-failed', JSON.stringify({ status: r.status, error: j.error || 'unknown' }));
+          }
+        } else {
+          console.log('[AR] hackars-skipped', JSON.stringify({ reason: img ? 'remote-image' : 'no-image' }));
+        }
+      } catch (e) {
+        console.log('[AR] hackars-error', JSON.stringify({ error: String(e?.message || e) }));
+      }
+    }
+    if (u.hackarsUrl) hackars = { url: u.hackarsUrl, projectId: u.hackarsProjectId || null };
+    const url = hackars?.url || builtinUrl;
     const qr = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(url)}`;
-    console.log('[AR] publish', JSON.stringify({ nickname: u.nickname, arId: u.arId }));
+    console.log('[AR] publish', JSON.stringify({ nickname: u.nickname, arId: u.arId, hackars: !!hackars }));
+    const text = hackars
+      ? `公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}\n\n（予備のビューア：${builtinUrl}）\n\n見終わったら、最後に制作証明を出そう。`
+      : `公開したよ！このリンクをスマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}\n\n見終わったら、最後に制作証明を出そう。`;
     return {
-      content: [{ type: 'text', text: `公開したよ！このリンクをスマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}\n\n見終わったら、最後に制作証明を出そう。` }, memo(u)],
-      structuredContent: { url, qr, card: packCard(u) },
+      content: [{ type: 'text', text }, memo(u)],
+      structuredContent: { url, qr, hackarsUrl: hackars?.url || null, hackarsProjectId: hackars?.projectId || null, builtinUrl, card: packCard(u) },
     };
   });
 
@@ -531,7 +573,7 @@ function buildServer() {
     if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に AR を作ってね。' }, memo(u)], structuredContent: { needsCompose: true, card: packCard(u) } };
     const p = readTok(u.arTok) || {};
     const again = !!u.certTok;
-    if (!again) u.certTok = packTok({ n: u.nickname, ti: p.ti || 'My AR', th: p.th || u.theme || '', d: new Date().toISOString().slice(0, 10), us: p.us || u.usage || null });
+    if (!again) u.certTok = packTok({ n: u.nickname, ti: p.ti || 'My AR', th: p.th || u.theme || '', d: new Date().toISOString().slice(0, 10), us: p.us || u.usage || null, h: u.hackarsUrl || null });
     const url = `${BASE}/c/${u.certTok}`;
     console.log('[AR] certificate', JSON.stringify({ nickname: u.nickname, again }));
     return {
