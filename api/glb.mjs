@@ -653,7 +653,7 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character' }) {
   _lap('earcut');
   // blob shadow geometry (own mesh, unskinned)
   const blobSize = FIG_H * 1.09;
-  const bpos = [], bnor = [], buv = [], bidx = [0, 1, 2, 0, 2, 3];
+  const bpos = [], bnor = [], buv = [], bidx = [0, 2, 1, 0, 3, 2]; // wound so the face normal is +Y (visible from above)
   [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].forEach(([sx, sz], i) => {
     bpos.push(sx * blobSize, 0.003, sz * blobSize); bnor.push(0, 1, 0); buv.push(i === 1 || i === 2 ? 1 : 0, i >= 2 ? 1 : 0);
   });
