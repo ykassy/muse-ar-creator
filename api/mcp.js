@@ -3,6 +3,7 @@
 // アプリレス WebAR として公開する MCP サーバー（Streamable HTTP・ステートレス）。
 // 構造は 以前の自社コネクター試作と同じ流儀：単一ファイル＋署名付き「カード」メモで状態を持つ。
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import VFX_SOURCES from './vfx-sources.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { createHmac } from 'node:crypto';
 import { inflateSync, deflateSync } from 'node:zlib';
@@ -1269,6 +1270,10 @@ async function handle(request) {
   const arTok = url.searchParams.get('ar');
   const certTok = url.searchParams.get('cert');
   const imgId = url.searchParams.get('img');
+  const staticPath = url.searchParams.get('static');
+  if (request.method === 'GET' && staticPath && VFX_SOURCES[staticPath]) {
+    return new Response(Buffer.from(VFX_SOURCES[staticPath], 'base64'), { status: 200, headers: { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+  }
   if (request.method === 'GET' && arTok) return ((readTok(arTok) || {}).e === 'ultra' ? arPageUltra(arTok) : arPage(arTok));
   if (request.method === 'GET' && certTok) return certPage(certTok);
   if (request.method === 'GET' && imgId) return imgResponse(imgId);
