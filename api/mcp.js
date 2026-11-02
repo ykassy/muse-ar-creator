@@ -457,6 +457,17 @@ function initScene() {
   dot.rotation.x = -Math.PI / 2; ret.add(dot);
   ret.position.y = 0.015; scene.add(ret);
 
+  // ---- 配置時の衝撃リング（足元にバンッと広がって消える） ----
+  var rings = [];
+  for (var ri = 0; ri < 3; ri++) {
+    var rm = new THREE.Mesh(new THREE.RingGeometry(0.46, 0.5, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color(CFG.color), transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
+    rm.rotation.x = -Math.PI / 2; rm.position.y = 0.02; rm.visible = false; scene.add(rm);
+    rings.push({ m: rm, t: 1e9 });
+  }
+  function spawnRings(x, z) {
+    for (var i = 0; i < rings.length; i++) { rings[i].t = -i * 0.13; rings[i].m.position.x = x; rings[i].m.position.z = z; }
+  }
+
   // ---- 配置：レイを仮想の床（y=0）に当てて置く ----
   var ray = new THREE.Raycaster(), center = new THREE.Vector2(0, 0), hitP = new THREE.Vector3();
   function groundHit() {
@@ -475,11 +486,11 @@ function initScene() {
   function placeAtCenter() {
     var h = groundHit(); if (!h) { showNote('床のほうを向けてタップしてね'); return; }
     group.position.set(h.x, 0, h.z);
-    placed = true; startPop();
+    placed = true; startPop(); spawnRings(h.x, h.z);
     hint.textContent = '置いた！ タップで置き直せる ・ 近づいたり回り込んでみて';
   }
   // 最初は正面1.4mに仮置きして、すぐ絵が見えるようにする
-  group.position.set(0, 0, -1.4); placed = true; startPop();
+  group.position.set(0, 0, -1.4); placed = true; startPop(); spawnRings(0, -1.4);
 
   var clock = new THREE.Clock();
   (function loop() {
@@ -518,6 +529,16 @@ function initScene() {
       if (life[i] <= 0 || pos[i * 3 + 1] > 1.9 || pos[i * 3 + 1] < -0.05) respawn(i, false);
     }
     geo.attributes.position.needsUpdate = true;
+    // 衝撃リングの進行
+    for (var rj = 0; rj < rings.length; rj++) {
+      var R = rings[rj]; R.t += dt;
+      if (R.t < 0) { R.m.visible = false; continue; }
+      var rp = R.t / 0.75;
+      if (rp >= 1) { R.m.visible = false; continue; }
+      R.m.visible = true;
+      var rs = 0.25 + rp * 1.6; R.m.scale.set(rs, rs, 1);
+      R.m.material.opacity = 0.85 * (1 - rp);
+    }
     renderer.render(scene, camera);
   })();
 }
