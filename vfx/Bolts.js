@@ -370,7 +370,7 @@ export class Bolts {
       vertexShader: head, fragmentShader: CORE_FRAG,
     }));
     this.glows = new THREE.Mesh(geo, new THREE.RawShaderMaterial({
-      glslVersion: THREE.GLSL3, uniforms: this.uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, defines: { BOLT_GLOW: 1 }, // SPIKE PATCH: was ...FX_BLENDING (FX-pass MRT)
+      glslVersion: THREE.GLSL3, uniforms: this.uniforms, transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcColorFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcColorFactor /* SCREEN blend (AR port): additive over a transparent canvas wrote dark fringes once composited over the camera feed */, side: THREE.DoubleSide, defines: { BOLT_GLOW: 1 }, // SPIKE PATCH: was ...FX_BLENDING (FX-pass MRT)
       vertexShader: FX_VERT_HEAD + head,
       fragmentShader: AR_FRAG_HEAD + COMMON_GLSL + AR_FX_SHIM + GLOW_FRAG, // SPIKE PATCH: was FX_FRAG_HEAD + COMMON_GLSL + FX_OUT_GLSL + GLOW_FRAG
     }));

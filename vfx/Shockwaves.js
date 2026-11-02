@@ -110,7 +110,7 @@ export class Shockwaves {
     this.geometry = geo;
     this.uniforms = { ...U };
     this.mesh = new THREE.Mesh(geo, new THREE.RawShaderMaterial({
-      glslVersion: THREE.GLSL3, uniforms: this.uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, // SPIKE PATCH: was ...FX_BLENDING (FX-pass MRT)
+      glslVersion: THREE.GLSL3, uniforms: this.uniforms, transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcColorFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcColorFactor /* SCREEN blend (AR port): additive over a transparent canvas wrote dark fringes once composited over the camera feed */, side: THREE.DoubleSide, // SPIKE PATCH: was ...FX_BLENDING (FX-pass MRT)
       vertexShader: FX_VERT_HEAD + COMMON_GLSL + VERT,
       fragmentShader: AR_FRAG_HEAD + COMMON_GLSL + AR_FX_SHIM + FRAG, // SPIKE PATCH: was FX_FRAG_HEAD + COMMON_GLSL + FX_OUT_GLSL + FRAG
     }));

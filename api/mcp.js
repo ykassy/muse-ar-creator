@@ -1019,9 +1019,10 @@ const VOICE = 'AR Creator は、ユーザーが Muse との会話で AR（カメ
   + 'コネクター・MCP・API・トークン・サーバーなどの仕組みの言葉は、必要なとき以外は使わない。'
   + '進め方は3つだけ：① start_create で参加の確認とテーマを聞く（テーマはユーザー本人の言葉をそのまま渡す。あなたが勝手にテーマを決めない）'
   + '② テーマが決まったら compose_ar を呼ぶ（AR の中身の構成はサーバー側のモデルが行う）'
-  + '③ 返ってきた公開 URL をそのまま見せ、スマホで開くよう案内する。作れたら publish_ar で公開リンクを、最後に issue_certificate で制作証明を出す。'
+  + '③ compose の結果はプレビューとして見せ、publish_ar で HACKAR:S（hackar-s.com）に公開した URL を成果物として渡す。最後に issue_certificate で制作証明を出す。'
   + '案内役としてユーザーを迷わせないこと：テーマに迷っていたら例を3つ提案する。各ステップでは、次にできることを短い選択肢で提示して選んでもらう（考えさせるだけの質問で終わらせない）。公開できたら、制作証明を出すか、動きやエフェクトを変えた別バージョンを作るか、新しいテーマで作るかを提案する。'
-  + 'ツールが返した URL・タイトル・トークン数の要約は、中身を変えずに伝える。';
+  + 'ツールが返した URL・タイトル・トークン数の要約は、中身を変えずに伝える。'
+  + 'リンクの統一ルール：ユーザーが開く AR のリンクは hackar-s.com の URL だけ。ビューアの URL は内部プレビュー用で、成果物として渡さない。HACKAR:S への公開に失敗したときは、別の URL に差し替えず、失敗したこと自体をそのまま伝える。';
 
 function buildServer() {
   const server = new McpServer(
@@ -1063,7 +1064,7 @@ function buildServer() {
 
   server.registerTool('compose_ar', {
     title: 'ARの中身を組み立てる',
-    description: 'テーマからARの中身（タイトル・表示テキスト・色・エフェクト・素材画像）をサーバー側の Meta モデルで組み立てる。テーマが決まったら呼ぶ。呼ぶ前に、ユーザーの意向がまだ分からなければ、3つだけ短く聞いてから呼ぶこと：①背景は「キャラだけ透過（背景なし）」か「カード型（背景あり）」か。②動きは「ぴょんぴょん（跳ね続ける）」「バウンス（弾んで登場）」「ふわふわ（浮いて揺れる）」「ゆらゆら（揺れる）」「そのまま（静止）」のどれか。③エフェクトは「おまかせ」「炎」「氷」「稲妻」「花びら」「きらきら」「泡」「紙吹雪」「ウルトラ稲妻」のどれか。ユーザーが「おまかせ」と言ったら聞かずに既定（透過＋バウンス＋エフェクトおまかせ）で呼ぶ。既に聞いている・決まっている場合は聞き直さない。返ってきた公開URLと要約（どのモデルが何トークン使ったか）をそのままユーザーに伝える。そのうえで、公開するか、動きやエフェクトを変える（remix_ar）かをユーザーに選んでもらうこと。',
+    description: 'テーマからARの中身（タイトル・表示テキスト・色・エフェクト・素材画像）をサーバー側の Meta モデルで組み立てる。テーマが決まったら呼ぶ。呼ぶ前に、ユーザーの意向がまだ分からなければ、3つだけ短く聞いてから呼ぶこと：①背景は「キャラだけ透過（背景なし）」か「カード型（背景あり）」か。②動きは「ぴょんぴょん（跳ね続ける）」「バウンス（弾んで登場）」「ふわふわ（浮いて揺れる）」「ゆらゆら（揺れる）」「そのまま（静止）」のどれか。③エフェクトは「おまかせ」「炎」「氷」「稲妻」「花びら」「きらきら」「泡」「紙吹雪」「ウルトラ稲妻（プレビュー専用）」のどれか。ユーザーが「おまかせ」と言ったら聞かずに既定（透過＋バウンス＋エフェクトおまかせ）で呼ぶ。既に聞いている・決まっている場合は聞き直さない。返ってきたプレビューURLと要約（どのモデルが何トークン使ったか）をユーザーに伝える。そのうえで、公開するか、動きやエフェクトを変える（remix_ar）かをユーザーに選んでもらうこと。成果物として渡す URL は publish_ar が返す hackar-s.com の URL だけ。',
     inputSchema: {
       nickname: nickArg,
       theme: z.string().optional().describe('テーマ（一言）。前に start_create で受け取っていれば省略可'),
@@ -1127,7 +1128,7 @@ function buildServer() {
       ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}）`
       : 'テンプレート構成で組み立てました（モデル未使用）';
     const styleLine = `背景：${transparentApplied ? '透過（キャラだけ浮き出る）' : 'カード型'}／動き：${{ bounce: 'バウンスで登場', hop: 'ぴょんぴょん跳ね続ける', float: 'ふわふわ浮く', sway: 'ゆらゆら揺れる', still: 'そのまま静止' }[moChoice]}${action ? `／動きの演出：${action}` : ''}`;
-    const text = `できたよ！「${comp.title}」\n${comp.text}\nエフェクト：${comp.effect}／基調色：${comp.color}\n${styleLine}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n公開URL（スマホで開いてね）：\n${url}\n\nこのまま公開する？ 動きやエフェクトを変えたくなったら、言ってくれたらすぐ作り直すよ。`;
+    const text = `できたよ！「${comp.title}」\n${comp.text}\nエフェクト：${comp.effect}／基調色：${comp.color}\n${styleLine}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\nプレビュー（スマホで確認してね）：\n${url}\n\nこのまま公開する？（公開すると hackar-s.com のURLが発行されるよ）動きやエフェクトを変えたくなったら、言ってくれたらすぐ作り直すよ。`;
     console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, bg: effBg, mo: moChoice, transparentApplied }));
     return {
       content: [{ type: 'text', text }],
@@ -1137,7 +1138,7 @@ function buildServer() {
 
   server.registerTool('publish_ar', {
     title: 'ARを公開する',
-    description: '作ったARを公開する。HACKAR:S に実プロジェクトを作成できた場合はそのURLを、できない場合は自前ビューアのURLを返す。compose_ar のあとに呼ぶ。返ってきたURLはそのままユーザーに見せる。',
+    description: '作ったARを HACKAR:S に実プロジェクトとして公開し、hackar-s.com のURLを返す。成果物のURLはこれだけに統一する。公開できない場合は失敗として返す（別のURLで代用しない）。compose_ar のあとに呼ぶ。',
     inputSchema: { nickname: nickArg, card: cardArg },
     annotations: { title: 'ARを公開する', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ nickname, card }) => {
@@ -1146,7 +1147,7 @@ function buildServer() {
     const builtinUrl = `${BASE}/ar/${u.arTok}`;
     // HACKAR:S 連携: キーが設定されていて素材画像が手元にあれば、HACKAR:S に
     // 実プロジェクトを作成して、その /slam-ar/ URL を公開リンクにする。
-    // 失敗したら従来の自前ビューアにフォールバックする（公開が止まらない）。
+    // 失敗したら失敗として返す（成果物URLの差し替えはしない＝URL統一ルール）。
     let hackars = null;
     let animatedGif = false;
     if (HACKARS_API_KEY && !u.hackarsUrl) {
@@ -1195,12 +1196,13 @@ function buildServer() {
     const url = hackars?.url || builtinUrl;
     const qr = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(url)}`;
     console.log('[AR] publish', JSON.stringify({ nickname: u.nickname, arId: u.arId, hackars: !!hackars }));
+    const isUltra = (readTok(u.arTok) || {}).e === 'ultra';
     const text = hackars
-      ? `公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}\n\n（予備のビューア：${builtinUrl}）\n\n次はどうする？「制作証明を出す」「動きやエフェクトを変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`
-      : `公開したよ！このリンクをスマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}\n\n次はどうする？「制作証明を出す」「動きやエフェクトを変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`;
+      ? `公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}${isUltra ? '\n\n※ウルトラ稲妻の演出はプレビュー専用で、HACKAR:S版では花びらのエフェクトになっているよ。' : ''}\n\n次はどうする？「制作証明を出す」「動きやエフェクトを変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`
+      : `HACKAR:S への公開がうまくいかなかったよ。時間をおいて、もう一度「公開して」と言ってね。（確認用プレビュー：${builtinUrl}）`;
     return {
       content: [{ type: 'text', text }],
-      structuredContent: { url, qr, hackarsUrl: hackars?.url || null, hackarsProjectId: hackars?.projectId || null, builtinUrl, animated: animatedGif, card: packCard(u) },
+      structuredContent: { url: hackars?.url || null, publishFailed: !hackars, qr: hackars ? qr : null, hackarsUrl: hackars?.url || null, hackarsProjectId: hackars?.projectId || null, previewUrl: builtinUrl, animated: animatedGif, card: packCard(u) },
     };
   });
 
