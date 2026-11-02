@@ -8,17 +8,32 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { createHmac } from 'node:crypto';
 import { inflateSync, deflateSync } from 'node:zlib';
 import { z } from 'zod';
+import { buildGlb } from './glb.mjs';
 
 const BASE = process.env.PUBLIC_BASE_URL || 'https://hackathon-ar-creator.vercel.app';
-const SECRET = process.env.CARD_SECRET || 'removed';
+const SECRET = process.env.CARD_SECRET || '';
+// The default secret was public (it shipped in this file), so running without
+// CARD_SECRET would let anyone forge cards. Refuse to start instead.
+if (!SECRET) throw new Error('CARD_SECRET is not set: refusing to start.');
 const MODEL_API_KEY = process.env.MODEL_API_KEY || '';
 const HACKARS_API_KEY = process.env['HACKARS_API_KEY'] || '';
 const HACKARS_API_URL = process.env.HACKARS_API_URL || 'https://hackar-s.com/api/project-create';
+const ASSET_STORE_URL = process.env.ASSET_STORE_URL || 'https://hackar-s.com/api/asset-store';
 const API_BASE = 'https://api.meta.ai/v1';
 const SPARK_MODEL = 'muse-spark-1.3';
 const IMAGE_MODEL = 'muse-image-1.0';
 
-const EFFECTS = ['flame', 'ice', 'lightning', 'petal'];
+// Published effects are the five real Ultra Elements spells only (verified in
+// the production player). Sprite particles (smoke/petal/bubble/...) are never
+// attached to published works.
+const ULTRA_SPELLS = [
+  { id: 'lightning', spell: 'lightning', form: 'Thunderstrike', label: '雷' },
+  { id: 'fire', spell: 'fire', form: 'Fireball', label: '炎' },
+  { id: 'frozen-lightning', spell: 'frozen-lightning', form: '', label: '氷の稲妻' },
+  { id: 'starfall', spell: 'starfall', form: '', label: '星の魔法陣' },
+  { id: 'light', spell: 'light', form: 'Judgment', label: '光の柱' },
+];
+const spellOf = (id) => ULTRA_SPELLS.find((s) => s.id === id) || ULTRA_SPELLS[0];
 
 // ---- 署名付きトークン（以前の自社試作と同じ仕組みを新規実装） ----
 // カード：会話の状態（同意・テーマ・AR・証明）を Muse 経由で持ち回るメモ。
@@ -30,31 +45,44 @@ const readTok = (tok) => {
   if (!m || sign(m[1]) !== m[2]) return null;
   try { return JSON.parse(Buffer.from(m[1], 'base64url').toString()); } catch { return null; }
 };
-const packCard = (u) => `HC1.${packTok({ n: u.nickname, a: u.agreed ? 1 : 0, t: u.theme || null, ar: u.arTok || null, c: u.certTok || null, us: u.usage || null })}`;
+const packCard = (u) => `HC1.${packTok({ n: u.nickname, o: u.ownerId || null, a: u.agreed ? 1 : 0, t: u.theme || null, ar: u.arTok || null, c: u.certTok || null, us: u.usage || null, hu: u.hackarsUrl || null })}`;
 const readCard = (card) => {
   const m = /^HC1\.([A-Za-z0-9_-]+\.[A-Za-z0-9_-]{10})$/.exec((card || '').trim());
   return m ? readTok(m[1]) : null;
 };
 
 // ---- 状態：サーバーメモリ＋カードの2本立て（メモリが消えたらカードを正にする） ----
-const users = new Map(); // nickname -> { nickname, agreed, theme, arTok, arId, certTok, usage }
-// 生成画像（WebP 約430KB）は URL トークンに入らないので、短いIDでメモリ保持し /img/<id> で配信する。
-// メモリが落ちたら画像は 404 になり、ARページはエフェクト＋テキストだけで成立させる（graceful degradation）。
-const imgs = new Map();  // imgId -> { buf: Buffer, type } | { remote: url }
+const users = new Map(); // ownerId -> session (a nickname alone never resumes a session)
+const imgs = new Map();  // imgId -> { buf: Buffer, type } | { remote: url }  (cache; durable copies live in asset-store)
 const keyOf = (nickname) => (nickname || 'guest').trim().toLowerCase() || 'guest';
+const mintOwnerId = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+const freshUser = (nickname) => ({ nickname: keyOf(nickname), ownerId: null, agreed: false, theme: null, arTok: null, arId: null, certTok: null, usage: null, hackarsUrl: null, hackarsProjectId: null });
 const getU = (nickname, card) => {
-  const k = keyOf(nickname);
-  if (!users.has(k)) users.set(k, { nickname: k, agreed: false, theme: null, arTok: null, arId: null, certTok: null, usage: null });
-  const u = users.get(k), c = readCard(card);
-  if (c) {
+  const c = readCard(card);
+  if (c?.o) {
+    // A card identifies its owner's session, independent of the nickname.
+    if (!users.has(c.o)) users.set(c.o, { ...freshUser(c.n || nickname), ownerId: c.o });
+    const u = users.get(c.o);
     if (c.a) u.agreed = true;
     if (c.t && !u.theme) u.theme = c.t;
     if (c.ar && !u.arTok) { u.arTok = c.ar; const p = readTok(c.ar); if (p) u.arId = p.i; }
     if (c.c && !u.certTok) u.certTok = c.c;
     if (c.us && !u.usage) u.usage = c.us;
+    if (c.hu && !u.hackarsUrl) u.hackarsUrl = c.hu;
+    return u;
   }
-  return u;
+  // No card: never inherit another person's consent, theme or AR by nickname.
+  return freshUser(nickname || c?.n);
 };
+// Durable asset storage (HACKAR:S deployments bucket via /api/asset-store).
+async function storeAsset(kind, buf) {
+  if (!HACKARS_API_KEY || !buf) return null;
+  try {
+    const r = await fetch(ASSET_STORE_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': HACKARS_API_KEY }, body: JSON.stringify({ kind, base64: buf.toString('base64') }), signal: AbortSignal.timeout(30_000) });
+    const j = await r.json().catch(() => ({}));
+    return r.ok && j.url ? j.url : null;
+  } catch { return null; }
+}
 const cardArg = z.string().optional().describe('前のツールの structuredContent にある card（HC1. で始まる文字列）。あればそのまま入れる');
 const nickArg = z.string().optional().describe('ユーザーの呼び名（毎回同じものを入れる）');
 
@@ -71,7 +99,7 @@ async function fetchSpark(theme) {
       max_tokens: 2500,
       messages: [
         { role: 'system', content: 'You are an AR experience composer for an app-less WebAR product. Reply with ONE JSON object only, no markdown, no code fences, no commentary.' },
-        { role: 'user', content: `Compose a small AR overlay for the theme: "${theme}".\nReturn JSON with exactly these keys:\n- "title": a short English title, at most 5 words\n- "text": one English line shown over the camera view, at most 90 characters\n- "color": one base color as #RRGGBB that matches the mood\n- "effect": one of "flame", "ice", "lightning", "petal" — pick the particle effect that best matches the theme\n- \"action\": one short English sentence describing how the character moves in a seamless in-place loop (e.g. \"hops happily with squash and stretch\", \"sways gently like a jellyfish\")` },
+        { role: 'user', content: `Compose a small AR character for the theme: "${theme}".\nReturn JSON with exactly these keys:\n- "title": a short English title, at most 5 words\n- "text": one English line shown over the camera view, at most 90 characters\n- "color": one base color as #RRGGBB that matches the mood\n- "effect": one of "lightning", "fire", "frozen-lightning", "starfall", "light" — the magic spell this character casts; pick the one that best matches the theme\n- "name": the character's own name in Japanese, at most 10 characters\n- "persona": the character's personality in Japanese, 1-2 short sentences (it speaks in this voice when poked)\n- \"action\": one short English sentence describing how the character moves in a seamless in-place loop` },
       ],
     }),
   });
@@ -452,33 +480,43 @@ function makeAnimGif(pngBuf, motion) {
 
 function normalizeComp(c, theme) {
   const color = /^#[0-9a-fA-F]{6}$/.test(c?.color || '') ? c.color : fallbackComp(theme).color;
-  let effect = EFFECTS.includes(c?.effect) ? c.effect : null;
-  if (!effect) { // 言い換え・表記ゆれを吸収する
+  let effect = ULTRA_SPELLS.some((s) => s.id === c?.effect) ? c.effect : null;
+  if (!effect) { // 言い換え・表記ゆれを吸収する（frozen を lightning より先に判定）
     const s = String(c?.effect || '').toLowerCase();
-    effect = EFFECTS.find((e) => s.includes(e)) || ({ fire: 'flame', snow: 'ice', thunder: 'lightning', flower: 'petal', sakura: 'petal' })[Object.keys({ fire: 1, snow: 1, thunder: 1, flower: 1, sakura: 1 }).find((k) => s.includes(k))] || fallbackComp(theme).effect;
+    effect = s.includes('frozen') || s.includes('氷') ? 'frozen-lightning'
+      : s.includes('star') || s.includes('星') ? 'starfall'
+      : s.includes('judg') || s.includes('柱') || s === 'light' ? 'light'
+      : s.includes('fire') || s.includes('flame') || s.includes('炎') ? 'fire'
+      : s.includes('lightning') || s.includes('thunder') || s.includes('雷') || s.includes('ice') || s.includes('snow') || s.includes('雪') ? 'lightning'
+      : fallbackComp(theme).effect;
   }
+  const fb = fallbackComp(theme);
   return {
-    title: String(c?.title || '').slice(0, 60) || fallbackComp(theme).title,
-    text: String(c?.text || '').slice(0, 120) || fallbackComp(theme).text,
+    title: String(c?.title || '').slice(0, 60) || fb.title,
+    text: String(c?.text || '').slice(0, 120) || fb.text,
     color, effect,
+    name: String(c?.name || '').slice(0, 20) || fb.name,
+    persona: String(c?.persona || '').slice(0, 200) || fb.persona,
     action: String(c?.action || '').slice(0, 120),
   };
 }
 
 // 生成に失敗しても AR は必ず立てるためのテンプレート構成（テーマのハッシュで決定的に選ぶ）
 const PALETTES = [
-  { color: '#FF7A1A', effect: 'flame' },
-  { color: '#39B5FF', effect: 'ice' },
+  { color: '#FF7A1A', effect: 'fire' },
+  { color: '#39B5FF', effect: 'frozen-lightning' },
   { color: '#7A5CFF', effect: 'lightning' },
-  { color: '#FF8FB3', effect: 'petal' },
+  { color: '#FFD75E', effect: 'starfall' },
 ];
 function fallbackComp(theme) {
   const t = String(theme || '');
-  const kw = [/(炎|火|燃|ドラゴン|fire|flame|dragon)/i, /(雪|氷|冬|snow|ice|winter)/i, /(雷|電|光|lightning|thunder|spark)/i, /(花|桜|春|petal|flower|sakura)/i];
+  const kw = [/(炎|火|燃|ドラゴン|fire|flame|dragon)/i, /(雪|氷|冬|snow|ice|winter)/i, /(雷|電|lightning|thunder|spark)/i, /(星|魔法|star|magic)/i];
   const ki = kw.findIndex((re) => re.test(t));
   let h = 0; for (const ch of t) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   const p = PALETTES[ki >= 0 ? ki : h % PALETTES.length];
-  return { title: `${theme} AR`, text: `Welcome to the world of ${theme}.`, color: p.color, effect: p.effect, action: 'hops happily in place with squash and stretch' };
+  return { title: `${theme} AR`, text: `Welcome to the world of ${theme}.`, color: p.color, effect: p.effect,
+           name: String(theme || 'なかま').slice(0, 10), persona: `${theme}から生まれた小さななかま。好奇心いっぱいで、人と話すのが大好き。`,
+           action: 'hops happily in place with squash and stretch' };
 }
 
 // chat（prompt/completion_tokens）と image（input/output_tokens）で形が違う usage を共通形に寄せる
@@ -1110,6 +1148,7 @@ h1{font-size:15px;letter-spacing:.35em;color:#d4af37;margin:0 0 6px}p{line-heigh
 <div class="title">${esc(p.ti)}</div><p class="theme">theme: ${esc(p.th)}</p>
 <p>この AR は Muse との会話から生まれ、<br>Meta Model API（Muse Spark / Muse Image）で<br>構成・生成されました。</p>
 ${p.us ? `<div class="row">Meta Model API usage（実行証跡）<br>${p.us.s ? `muse-spark-1.3： ${p.us.s.total ?? '?'} トークン（入力 ${p.us.s.in ?? '?'} / 出力 ${p.us.s.out ?? '?'}）<br>` : ''}${p.us.i ? `muse-image-1.0： ${p.us.i.total ?? '?'} トークン（入力 ${p.us.i.in ?? '?'} / 出力 ${p.us.i.out ?? '?'}）` : ''}</div>` : ''}
+${p.h ? `<div class="row">作品（HACKAR:S）<br><a href="${esc(p.h)}" style="color:#7ab8ff">${esc(p.h)}</a></div>` : ''}
 <div class="row">creator: ${esc(p.n)}<br>date: ${esc(p.d)}<br>Talk to Muse, unlock AR — HACK IT INC.</div></div></body></html>`;
   return new Response(html, { status: 200, headers: htmlHeaders() });
 }
@@ -1124,10 +1163,71 @@ const VOICE = 'AR Creator は、ユーザーが Muse との会話で AR（カメ
   + 'コネクター・MCP・API・トークン・サーバーなどの仕組みの言葉は、必要なとき以外は使わない。'
   + '進め方は3つだけ：① start_create で参加の確認とテーマを聞く（テーマはユーザー本人の言葉をそのまま渡す。あなたが勝手にテーマを決めない）'
   + '② テーマが決まったら compose_ar を呼ぶ（AR の中身の構成はサーバー側のモデルが行う）'
-  + '③ compose の結果はプレビューとして見せ、publish_ar で HACKAR:S（hackar-s.com）に公開した URL を成果物として渡す。最後に issue_certificate で制作証明を出す。'
+  + '③ compose の結果（キャラ名・性格・魔法）を伝え、publish_ar で HACKAR:S（hackar-s.com）に公開した URL を成果物として渡す。最後に issue_certificate で制作証明を出す。compose が返すプレビューURLのようなものは無いので、公開前の確認用URLは作らない。'
   + '案内役としてユーザーを迷わせないこと：テーマに迷っていたら例を3つ提案する。各ステップでは、次にできることを短い選択肢で提示して選んでもらう（考えさせるだけの質問で終わらせない）。公開できたら、制作証明を出すか、動きやエフェクトを変えた別バージョンを作るか、新しいテーマで作るかを提案する。'
   + 'ツールが返した URL・タイトル・トークン数の要約は、中身を変えずに伝える。'
   + 'リンクの統一ルール：ユーザーが開く AR のリンクは hackar-s.com の URL だけ。ビューアの URL は内部プレビュー用で、成果物として渡さない。HACKAR:S への公開に失敗したときは、別の URL に差し替えず、失敗したこと自体をそのまま伝える。';
+
+// ---- 表情バリエーション: 元の絵のマスクで切り抜いた顔違いを asset-store に置く ----
+// images/edits が使えない環境では neutral（元の絵）だけになる（公開は止めない）。
+async function callImageEdit(pngB64, prompt) {
+  const bodies = [
+    { model: IMAGE_MODEL, prompt, image: pngB64, output_format: 'png' },
+    { model: IMAGE_MODEL, prompt, images: [pngB64], output_format: 'png' },
+  ];
+  for (const body of bodies) {
+    try {
+      const res = await fetch(`${API_BASE}/images/edits`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${MODEL_API_KEY}`, 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(60_000),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const b64 = data?.data?.[0]?.b64_json;
+      if (b64) return b64;
+    } catch { /* try the next shape */ }
+  }
+  return null;
+}
+const FACE_PROMPTS = {
+  happy: 'Change ONLY the facial expression of the character to a big happy smile with joyful closed eyes. Keep everything else - pose, body, colors, background, art style - exactly the same.',
+  surprised: 'Change ONLY the facial expression of the character to very surprised: wide round eyes and a small open round mouth. Keep everything else - pose, body, colors, background, art style - exactly the same.',
+  sad: 'Change ONLY the facial expression of the character to sad: droopy eyebrows, teary eyes, a small downturned mouth. Keep everything else - pose, body, colors, background, art style - exactly the same.',
+  angry: 'Change ONLY the facial expression of the character to angry: angled eyebrows, puffed cheeks, a pouting mouth. Keep everything else - pose, body, colors, background, art style - exactly the same.',
+};
+async function makeFaces(rawPngBuf, keyedBuf, keyCh) {
+  const faces = {};
+  try {
+    const neutralUrl = await storeAsset('png', keyedBuf);
+    if (neutralUrl) faces.neutral = neutralUrl;
+    if (!MODEL_API_KEY || !rawPngBuf) return faces;
+    const base = decodePng(keyedBuf); // the silhouette to re-cut every variant with
+    const rawB64 = rawPngBuf.toString('base64');
+    const jobs = Object.entries(FACE_PROMPTS).map(async ([emotion, prompt]) => {
+      try {
+        const b64 = await callImageEdit(rawB64, prompt);
+        if (!b64) return;
+        let vbuf = Buffer.from(b64, 'base64');
+        try { vbuf = makeTransparent(vbuf, keyCh); } catch { return; }
+        const v = decodePng(vbuf);
+        if (v.w !== base.w || v.h !== base.h) return;
+        // 元の絵のマスクで同じ形に切り抜く: alpha は元の絵のものをそのまま使う
+        const out = new Uint8Array(base.rgba);
+        for (let i = 0; i < base.w * base.h; i++) {
+          out[i * 4] = v.rgba[i * 4]; out[i * 4 + 1] = v.rgba[i * 4 + 1]; out[i * 4 + 2] = v.rgba[i * 4 + 2];
+          out[i * 4 + 3] = base.rgba[i * 4 + 3];
+        }
+        const url = await storeAsset('png', encodePng(base.w, base.h, out));
+        if (url) faces[emotion] = url;
+      } catch { /* one missing face is fine */ }
+    });
+    await Promise.all(jobs);
+  } catch { /* expressions are optional */ }
+  console.log('[AR] faces', JSON.stringify({ made: Object.keys(faces) }));
+  return faces;
+}
 
 function buildServer() {
   const server = new McpServer(
@@ -1147,10 +1247,11 @@ function buildServer() {
     annotations: { title: 'AR作りを始める', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   }, async ({ nickname, theme, agreed, card }) => {
     const u = getU(nickname, card);
+    if (!u.ownerId) { u.ownerId = mintOwnerId(); users.set(u.ownerId, u); }
     if (!agreed && !u.agreed) {
       return {
         content: [{ type: 'text', text: 'AR、一緒に作ろう！\nその前にひとつだけ。呼び名と、作りたいテーマ、作ったARの情報だけを AR Creator に預けるね。それ以外は渡さないよ。\n\n「いいよ」で始めよう。どんなARにしたい？テーマを一言で教えて。' }],
-        structuredContent: { needsAgreement: true, shares: ['呼び名', 'テーマ', '作ったARの情報'] },
+        structuredContent: { needsAgreement: true, shares: ['呼び名', 'テーマ', '作ったARの情報'], card: packCard(u) },
       };
     }
     u.agreed = true;
@@ -1169,26 +1270,26 @@ function buildServer() {
 
   server.registerTool('compose_ar', {
     title: 'ARの中身を組み立てる',
-    description: 'テーマからARの中身（タイトル・表示テキスト・色・エフェクト・素材画像）をサーバー側の Meta モデルで組み立てる。テーマが決まったら呼ぶ。呼ぶ前に、ユーザーの意向がまだ分からなければ、3つだけ短く聞いてから呼ぶこと：①背景は「キャラだけ透過（背景なし）」か「カード型（背景あり）」か。②動きは「ぴょんぴょん（跳ね続ける）」「バウンス（弾んで登場）」「ふわふわ（浮いて揺れる）」「ゆらゆら（揺れる）」「そのまま（静止）」のどれか。③エフェクトは「おまかせ」「炎」「氷」「稲妻」「花びら」「きらきら」「泡」「紙吹雪」「ウルトラ稲妻（プレビュー専用）」のどれか。ユーザーが「おまかせ」と言ったら聞かずに既定（透過＋バウンス＋エフェクトおまかせ）で呼ぶ。既に聞いている・決まっている場合は聞き直さない。返ってきたプレビューURLと要約（どのモデルが何トークン使ったか）をユーザーに伝える。そのうえで、公開するか、動きやエフェクトを変える（remix_ar）かをユーザーに選んでもらうこと。成果物として渡す URL は publish_ar が返す hackar-s.com の URL だけ。',
+    description: 'テーマからARキャラ（名前・性格・見た目・魔法）をサーバー側の Meta モデルで組み立て、半立体の3Dモデル（厚み・影・動き付き）まで作る。テーマが決まったら呼ぶ。ユーザーが魔法を指定していなければ、呼ぶ前に短く聞いてもよい：魔法は「おまかせ」「雷」「炎」「氷の稲妻」「星の魔法陣」「光の柱」のどれか。聞き直しはしない（言われなければおまかせで呼ぶ）。返ってきた要約（キャラ名・性格・魔法・どのモデルが何トークン使ったか）をユーザーに伝え、公開するか聞くこと。成果物のURLは publish_ar が返す hackar-s.com のURLだけ（プレビューURLは出さない）。',
     inputSchema: {
       nickname: nickArg,
       theme: z.string().optional().describe('テーマ（一言）。前に start_create で受け取っていれば省略可'),
-      background: z.enum(['transparent', 'card']).optional().describe('背景：transparent=キャラだけ透過（既定）、card=カード型'),
-      motion: z.enum(['bounce', 'float', 'hop', 'sway', 'still']).optional().describe('動き：bounce=弾んで登場（既定）、hop=ぴょんぴょん跳ね続ける、float=浮いて揺れる、sway=ゆらゆら揺れる、still=静止'),
-      effect: z.enum(['auto', 'flame', 'ice', 'lightning', 'petal', 'sparkle', 'bubble', 'confetti', 'ultra']).optional().describe('エフェクト：auto=おまかせ（既定）、flame=炎、ice=氷、lightning=稲妻、petal=花びら、sparkle=きらきら、bubble=泡、confetti=紙吹雪、ultra=ウルトラ稲妻（本物three.js・ビューア限定）'),
+      effect: z.enum(['auto', 'lightning', 'fire', 'frozen-lightning', 'starfall', 'light']).optional().describe('魔法：auto=おまかせ（既定）、lightning=雷、fire=炎、frozen-lightning=氷の稲妻、starfall=星の魔法陣、light=光の柱'),
       card: cardArg,
     },
     annotations: { title: 'ARの中身を組み立てる', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  }, async ({ nickname, theme, background, motion, effect, card }) => {
+  }, async ({ nickname, theme, effect, card }) => {
     const u = getU(nickname, card);
+    if (!u.agreed) {
+      return { content: [{ type: 'text', text: 'まだ参加の確認ができてないみたい。先に start_create で「いいよ」をもらってね。' }], structuredContent: { needsAgreement: true, card: packCard(u) } };
+    }
     if (theme) u.theme = String(theme).slice(0, 60);
     if (!u.theme) {
       return { content: [{ type: 'text', text: 'テーマがまだ決まってないみたい。先に start_create でテーマを聞いてね。' }], structuredContent: { needsTheme: true, card: packCard(u) } };
     }
     const th = u.theme;
-    const bgChoice = background || 'transparent';
-    const moChoice = motion || 'bounce';
     let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [], transparentApplied = false;
+    let glbUrl = null, glbAspect = null, faces = {}, rawPngBuf = null, keyedBuf = null, keyCh = 1;
     if (MODEL_API_KEY) {
       try {
         const r = await callSpark(th);
@@ -1197,14 +1298,15 @@ function buildServer() {
       } catch (e) { console.log('[AR] spark-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('構成モデルが応答しなかったのでテンプレート構成に切り替えました'); }
       if (comp) {
         try {
-          const r = await callImage(th, comp, bgChoice);
+          const r = await callImage(th, comp, 'transparent');
           imageUsage = r.usage;
           imgId = Math.floor(Math.random() * 36 ** 6).toString(36).toUpperCase().padStart(6, '0');
           if (r.b64) {
             let buf = Buffer.from(r.b64, 'base64');
-            let type = r.type || 'image/webp';
-            if (bgChoice === 'transparent' && type === 'image/png') {
-              try { buf = makeTransparent(buf, r.keyCh || 1); transparentApplied = true; }
+            const type = r.type || 'image/webp';
+            if (type === 'image/png') {
+              rawPngBuf = buf; keyCh = r.keyCh || 1;
+              try { keyedBuf = makeTransparent(buf, keyCh); buf = keyedBuf; transparentApplied = true; }
               catch (ke) { console.log('[AR] keying-failed', JSON.stringify({ theme: th, error: String(ke?.message || ke) })); notes.push('透過処理ができなかったので、そのままの画像で表示します'); }
             }
             imgs.set(imgId, { buf, type });
@@ -1219,25 +1321,35 @@ function buildServer() {
     if (!comp) comp = fallbackComp(th);
     if (effect && effect !== 'auto') comp.effect = effect;
     const action = comp.action || '';
-    const effBg = transparentApplied ? 'transparent' : 'card';
 
-    // usage は Tooling の証拠として、カードとARトークン（→制作証明）の両方に保持する
+    // 半立体GLB（厚み・小口・影・9種の動き）をサーバーで組み立て、永続化する。
+    // ここで保存しておくことで、別インスタンスの publish でも公開できる。
+    if (keyedBuf) {
+      try {
+        const { w, h, rgba } = decodePng(keyedBuf);
+        const built = buildGlb({ rgba, w, h, encodePng, name: 'character' });
+        glbAspect = built.aspect;
+        glbUrl = await storeAsset('glb', built.glb);
+        if (!glbUrl) notes.push('3Dモデルの保存に失敗しました（公開時に再試行します）');
+        console.log('[AR] glb-built', JSON.stringify({ theme: th, bytes: built.glb.length, aspect: glbAspect, stored: !!glbUrl }));
+      } catch (e) { console.log('[AR] glb-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('3Dモデルの生成に失敗しました'); }
+      try { faces = await makeFaces(rawPngBuf, keyedBuf, keyCh); } catch { faces = {}; }
+    }
+
     const usage = (sparkUsage || imageUsage) ? { s: normUsage(sparkUsage), i: normUsage(imageUsage) } : null;
     u.usage = usage;
-
     const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-    const arTok = packTok({ i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: effBg, mo: moChoice, ac: action || undefined });
-    u.arTok = arTok; u.arId = arId; u.certTok = null; // 新しいARを作ったら証明は作り直し
-    const url = `${BASE}/ar/${arTok}`;
+    const arTok = packTok({ i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona });
+    u.arTok = arTok; u.arId = arId; u.certTok = null;
+    const spell = spellOf(comp.effect);
     const summary = usedModel
       ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}）`
       : 'テンプレート構成で組み立てました（モデル未使用）';
-    const styleLine = `背景：${transparentApplied ? '透過（キャラだけ浮き出る）' : 'カード型'}／動き：${{ bounce: 'バウンスで登場', hop: 'ぴょんぴょん跳ね続ける', float: 'ふわふわ浮く', sway: 'ゆらゆら揺れる', still: 'そのまま静止' }[moChoice]}${action ? `／動きの演出：${action}` : ''}`;
-    const text = `できたよ！「${comp.title}」\n${comp.text}\nエフェクト：${comp.effect}／基調色：${comp.color}\n${styleLine}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\nプレビュー（スマホで確認してね）：\n${url}\n\nこのまま公開する？（公開すると hackar-s.com のURLが発行されるよ）動きやエフェクトを変えたくなったら、言ってくれたらすぐ作り直すよ。`;
-    console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, bg: effBg, mo: moChoice, transparentApplied }));
+    const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き）で組み立てたよ。\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\nこのまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。`;
+    console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
     return {
       content: [{ type: 'text', text }],
-      structuredContent: { url, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, background: effBg, motion: moChoice, transparentApplied, action, card: packCard(u) },
+      structuredContent: { title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, card: packCard(u) },
     };
   });
 
@@ -1249,90 +1361,82 @@ function buildServer() {
   }, async ({ nickname, card }) => {
     const u = getU(nickname, card);
     if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に compose_ar で組み立ててね。' }], structuredContent: { needsCompose: true, card: packCard(u) } };
-    const builtinUrl = `${BASE}/ar/${u.arTok}`;
-    // HACKAR:S 連携: キーが設定されていて素材画像が手元にあれば、HACKAR:S に
-    // 実プロジェクトを作成して、その /slam-ar/ URL を公開リンクにする。
-    // 失敗したら失敗として返す（成果物URLの差し替えはしない＝URL統一ルール）。
-    let hackars = null;
-    let animatedGif = false;
-    if (HACKARS_API_KEY && !u.hackarsUrl) {
+    if (!u.hackarsUrl) {
       try {
         const p = readTok(u.arTok) || {};
-        const img = p.im ? imgs.get(p.im) : null;
-        if (img?.buf) {
-          const moP = p.mo || 'bounce';
-          let pubBuf = img.buf, pubType = img.type === 'image/png' ? 'image/png' : 'image/webp';
-          if (moP !== 'still' && img.type === 'image/png') {
-            try {
-              const gif = makeAnimGif(img.buf, moP);
-              if (gif && gif.length < 3.9 * 1024 * 1024) { pubBuf = gif; pubType = 'image/gif'; }
-            } catch (ge) { console.log('[AR] gif-failed', JSON.stringify({ error: String(ge?.message || ge) })); }
+        let glbUrl = p.g || null, aspect = p.asp || null;
+        if (!glbUrl) {
+          // compose で保存できなかった場合の保険：手元の画像からその場で組み立てる
+          const img = p.im ? imgs.get(p.im) : null;
+          if (img?.buf && img.type === 'image/png') {
+            const { w, h, rgba } = decodePng(img.buf);
+            const built = buildGlb({ rgba, w, h, encodePng, name: 'character' });
+            aspect = built.aspect;
+            glbUrl = await storeAsset('glb', built.glb);
           }
-          animatedGif = pubType === 'image/gif';
-          const r = await fetch(HACKARS_API_URL, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', 'x-api-key': HACKARS_API_KEY },
-            body: JSON.stringify({
-              name: p.ti || 'Muse AR',
-              effect: p.e || 'petal',
-              color: p.c || '#FFC2D6',
-              imageBase64: pubBuf.toString('base64'),
-              imageContentType: pubType,
-              entranceAnim: moP === 'float' || moP === 'sway' ? 'fadeIn' : moP === 'still' ? 'none' : 'bounce',
-              billboard: moP === 'float',
-            }),
-          });
-          const j = await r.json().catch(() => ({}));
-          if (r.ok && j.url) {
-            hackars = j;
-            u.hackarsUrl = j.url; u.hackarsProjectId = j.projectId || null;
-            console.log('[AR] hackars-created', JSON.stringify({ nickname: u.nickname, projectId: j.projectId }));
-          } else {
-            console.log('[AR] hackars-failed', JSON.stringify({ status: r.status, error: j.error || 'unknown' }));
-          }
+        }
+        if (!glbUrl) throw new Error('no glb available');
+        const spell = spellOf(p.e);
+        const body = {
+          name: p.ti || 'Muse AR',
+          modelGlbUrl: glbUrl,
+          ultraFx: { spell: spell.spell, ...(spell.form ? { form: spell.form } : {}) },
+          handPlay: { talkName: p.nm || '', talkPersona: p.ps || '', talkLang: 'ja' },
+        };
+        if (aspect) body.modelAspect = aspect;
+        if (p.f && Object.keys(p.f).length) body.expressions = p.f;
+        const r = await fetch(HACKARS_API_URL, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-api-key': HACKARS_API_KEY },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(60_000),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && j.url) {
+          u.hackarsUrl = j.url; u.hackarsProjectId = j.projectId || null;
+          console.log('[AR] hackars-created', JSON.stringify({ nickname: u.nickname, projectId: j.projectId, spell: spell.id }));
         } else {
-          console.log('[AR] hackars-skipped', JSON.stringify({ reason: img ? 'remote-image' : 'no-image' }));
+          console.log('[AR] hackars-failed', JSON.stringify({ status: r.status, error: j.error || 'unknown' }));
         }
       } catch (e) {
         console.log('[AR] hackars-error', JSON.stringify({ error: String(e?.message || e) }));
       }
     }
-    if (u.hackarsUrl) hackars = { url: u.hackarsUrl, projectId: u.hackarsProjectId || null };
-    const url = hackars?.url || builtinUrl;
-    const qr = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(url)}`;
+    const hackars = u.hackarsUrl ? { url: u.hackarsUrl, projectId: u.hackarsProjectId || null } : null;
     console.log('[AR] publish', JSON.stringify({ nickname: u.nickname, arId: u.arId, hackars: !!hackars }));
-    const isUltra = (readTok(u.arTok) || {}).e === 'ultra';
-    const text = hackars
-      ? `公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}${isUltra ? '\n\n※ウルトラ稲妻の演出はプレビュー専用で、HACKAR:S版では花びらのエフェクトになっているよ。' : ''}\n\n次はどうする？「制作証明を出す」「動きやエフェクトを変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`
-      : `HACKAR:S への公開がうまくいかなかったよ。時間をおいて、もう一度「公開して」と言ってね。（確認用プレビュー：${builtinUrl}）`;
+    if (!hackars) {
+      return {
+        content: [{ type: 'text', text: 'HACKAR:S への公開がうまくいかなかったよ。時間をおいて、もう一度「公開して」と言ってね。' }],
+        structuredContent: { url: null, publishFailed: true, card: packCard(u) },
+      };
+    }
+    const qr = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(hackars.url)}`;
+    const text = `公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。つまんで持ち上げたり、つついて話しかけたり、手のひらから魔法を撃ったりできるよ。\n${hackars.url}\n\nQRコード用リンク：\n${qr}\n\n次はどうする？「制作証明を出す」「魔法を変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`;
     return {
       content: [{ type: 'text', text }],
-      structuredContent: { url: hackars?.url || null, publishFailed: !hackars, qr: hackars ? qr : null, hackarsUrl: hackars?.url || null, hackarsProjectId: hackars?.projectId || null, previewUrl: builtinUrl, animated: animatedGif, card: packCard(u) },
+      structuredContent: { url: hackars.url, publishFailed: false, qr, hackarsUrl: hackars.url, hackarsProjectId: hackars.projectId, card: packCard(u) },
     };
   });
 
   server.registerTool('remix_ar', {
-    title: '動きとエフェクトを変える',
-    description: '作ったARの素材はそのままに、動きとエフェクトだけを変えた別バージョンを作る（画像の再生成はしないので速い）。ユーザーが「動きを変えて」「エフェクトを変えて」と言ったら呼ぶ。呼んだら、続けて publish_ar を呼んで新しい公開リンクを出すこと。',
+    title: '魔法を変える',
+    description: '作ったARキャラはそのままに、魔法だけを変えた別バージョンを作る（画像の再生成はしないので速い）。ユーザーが「魔法を変えて」「エフェクトを変えて」と言ったら呼ぶ。呼んだら、続けて publish_ar を呼んで新しい公開リンクを出すこと。',
     inputSchema: {
       nickname: nickArg,
-      motion: z.enum(['bounce', 'float', 'hop', 'sway', 'still']).optional().describe('新しい動き（省略時は今のまま）'),
-      effect: z.enum(['flame', 'ice', 'lightning', 'petal', 'sparkle', 'bubble', 'confetti', 'ultra']).optional().describe('新しいエフェクト（省略時は今のまま）。ultra=ウルトラ稲妻（本物three.js・ビューア限定）'),
+      effect: z.enum(['lightning', 'fire', 'frozen-lightning', 'starfall', 'light']).optional().describe('新しい魔法（省略時は今のまま）：lightning=雷、fire=炎、frozen-lightning=氷の稲妻、starfall=星の魔法陣、light=光の柱'),
       card: cardArg,
     },
-    annotations: { title: '動きとエフェクトを変える', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  }, async ({ nickname, motion, effect, card }) => {
+    annotations: { title: '魔法を変える', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, async ({ nickname, effect, card }) => {
     const u = getU(nickname, card);
     if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に compose_ar で組み立ててね。' }], structuredContent: { needsCompose: true, card: packCard(u) } };
     const p = readTok(u.arTok) || {};
-    const mo = motion || p.mo || 'bounce';
-    const ef = effect || p.e || 'petal';
+    const ef = effect || p.e || 'lightning';
     const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-    const arTok = packTok({ i: arId, ti: p.ti, tx: p.tx, c: p.c, e: ef, th: p.th, im: p.im, us: p.us, bg: p.bg, mo, ac: p.ac });
+    const arTok = packTok({ i: arId, ti: p.ti, tx: p.tx, c: p.c, e: ef, th: p.th, im: p.im, us: p.us, bg: p.bg, mo: p.mo, ac: p.ac, g: p.g, asp: p.asp, f: p.f, nm: p.nm, ps: p.ps });
     u.arTok = arTok; u.arId = arId; u.hackarsUrl = null; u.hackarsProjectId = null; u.certTok = null;
-    const url = `${BASE}/ar/${arTok}`;
-    const text = `変えたよ！動き：${mo}／エフェクト：${ef}\nビューア（スマホで開いてね）：\n${url}\n\nこのまま publish_ar で新しい公開リンクを出すね。`;
-    return { content: [{ type: 'text', text }], structuredContent: { url, title: p.ti, motion: mo, effect: ef, card: packCard(u) } };
+    const text = `変えたよ！魔法：${spellOf(ef).label}\nこのまま publish_ar で新しい公開リンクを出すね。`;
+    return { content: [{ type: 'text', text }], structuredContent: { title: p.ti, effect: ef, card: packCard(u) } };
   });
 
   server.registerTool('issue_certificate', {
@@ -1345,7 +1449,7 @@ function buildServer() {
     if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に AR を作ってね。' }], structuredContent: { needsCompose: true, card: packCard(u) } };
     const p = readTok(u.arTok) || {};
     const again = !!u.certTok;
-    if (!again) u.certTok = packTok({ n: u.nickname, ti: p.ti || 'My AR', th: p.th || u.theme || '', d: new Date().toISOString().slice(0, 10), us: p.us || u.usage || null, h: u.hackarsUrl || null });
+    if (!again) u.certTok = packTok({ n: u.nickname, ti: p.ti || 'My AR', th: p.th || u.theme || '', d: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }), us: p.us || u.usage || null, h: u.hackarsUrl || null });
     const url = `${BASE}/c/${u.certTok}`;
     console.log('[AR] certificate', JSON.stringify({ nickname: u.nickname, again }));
     return {
