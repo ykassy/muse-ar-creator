@@ -174,58 +174,123 @@ function arPage(tok) {
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#0b0b10;font-family:-apple-system,'Hiragino Sans',sans-serif;color:#fff}
 #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:linear-gradient(160deg,${esc(p.c)},#14141d 75%)}
-#fx{position:fixed;inset:0}
+#fx{position:fixed;inset:0;touch-action:none}
 .hud{position:fixed;left:0;right:0;text-align:center;pointer-events:none;padding:0 18px;box-sizing:border-box}
 #ttl{top:calc(18px + env(safe-area-inset-top));font-size:30px;font-weight:900;letter-spacing:.02em;text-shadow:0 2px 18px rgba(0,0,0,.55)}
 #sub{top:calc(64px + env(safe-area-inset-top));font-size:14px;opacity:.92;text-shadow:0 1px 10px rgba(0,0,0,.6)}
 #theme{bottom:calc(20px + env(safe-area-inset-bottom));font-size:13px;opacity:.85;text-shadow:0 1px 8px rgba(0,0,0,.6)}
-#card{position:fixed;left:50%;bottom:12%;transform:translateX(-50%);width:min(46vw,220px);border-radius:20px;overflow:hidden;box-shadow:0 14px 44px rgba(0,0,0,.5);animation:float 4.5s ease-in-out infinite;background:${esc(p.c)}}
-#card img{display:block;width:100%;height:auto}
-@keyframes float{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-12px)}}
-#note{position:fixed;left:50%;bottom:calc(64px + env(safe-area-inset-bottom));transform:translateX(-50%);font-size:12px;background:rgba(0,0,0,.45);padding:6px 12px;border-radius:999px;display:none}
-#start{position:fixed;inset:0;display:grid;place-items:center;background:rgba(8,8,14,.55);backdrop-filter:blur(3px)}
+#hint{position:fixed;left:50%;bottom:calc(52px + env(safe-area-inset-bottom));transform:translateX(-50%);font-size:13px;font-weight:700;background:rgba(0,0,0,.5);padding:8px 16px;border-radius:999px;white-space:nowrap;display:none}
+#note{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);font-size:12px;background:rgba(0,0,0,.45);padding:6px 12px;border-radius:999px;display:none;white-space:nowrap}
+#start{position:fixed;inset:0;display:grid;place-items:center;background:rgba(8,8,14,.55);backdrop-filter:blur(3px);z-index:5}
 #start button{border:0;border-radius:999px;padding:16px 34px;font-size:17px;font-weight:800;background:${esc(p.c)};color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+#fallback{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(62vw,260px);border-radius:20px;overflow:hidden;display:none;box-shadow:0 14px 44px rgba(0,0,0,.5)}
+#fallback img{display:block;width:100%;height:auto}
 </style></head><body>
 <video id="cam" autoplay playsinline muted></video>
 <canvas id="fx"></canvas>
 <div class="hud" id="ttl">${esc(p.ti)}</div>
 <div class="hud" id="sub">${esc(p.tx)}</div>
-${cfg.image ? `<div id="card"><img src="${esc(cfg.image)}" alt="" onerror="this.closest('#card').style.display='none'"></div>` : ''}
 <div class="hud" id="theme">theme: ${esc(p.th)} ・ Talk to Muse, unlock AR</div>
+<div id="hint">真ん中の輪を床に合わせて、タップで置く</div>
 <div id="note"></div>
+${cfg.image ? `<div id="fallback"><img src="${esc(cfg.image)}" alt=""></div>` : ''}
 <div id="start"><button id="go">カメラで見る</button></div>
 <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
 <script>
 var CFG = ${jsJson(cfg)};
-// ---- three.js パーティクル（Ultra Elements の考え方を最小実装に抽出：1エフェクト=1パラメータセット） ----
+// ---- 3Dパーティクル（Ultra Elements の考え方：1エフェクト=1パラメータセット） ----
 var PARAMS = {
-  flame:     { n: 260, dir: 'up',    speed: [0.6, 1.8], sway: 0.15, size: 26, ramp: ['#fff3b0', CFG.color, '#e62e00'], spawn: 'bottom' },
-  ice:       { n: 200, dir: 'down',  speed: [0.15, 0.5], sway: 0.35, size: 15, ramp: ['#ffffff', '#bfefff', '#7fd4ff'], spawn: 'top' },
-  lightning: { n: 170, dir: 'burst', speed: [1.2, 3.2], sway: 0.05, size: 13, ramp: ['#ffffff', '#cfe8ff', '#5aa2ff'], spawn: 'center' },
-  petal:     { n: 140, dir: 'down',  speed: [0.2, 0.55], sway: 0.9, size: 22, ramp: ['#ffffff', '#ffc2d6', '#ff8fb3'], spawn: 'top' }
+  flame:     { n: 260, dir: 'up',    speed: [0.5, 1.1], sway: 0.10, size: 30, ramp: ['#fff3b0', CFG.color, '#e62e00'] },
+  ice:       { n: 200, dir: 'down',  speed: [0.12, 0.35], sway: 0.22, size: 17, ramp: ['#ffffff', '#bfefff', '#7fd4ff'] },
+  lightning: { n: 170, dir: 'burst', speed: [0.7, 1.6], sway: 0.03, size: 15, ramp: ['#ffffff', '#cfe8ff', '#5aa2ff'] },
+  petal:     { n: 140, dir: 'down',  speed: [0.15, 0.4], sway: 0.55, size: 25, ramp: ['#ffffff', '#ffc2d6', '#ff8fb3'] }
 };
 var P = PARAMS[CFG.effect] || PARAMS.petal;
-function startFx() {
-  if (!window.THREE) return; // three.js が読めなければ映像＋画像だけでも体験は成立させる
+function easeOutBack(t) { var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
+function easeInOutSine(t) { return -(Math.cos(Math.PI * t) - 1) / 2; }
+
+var started = false;
+document.getElementById('go').addEventListener('click', function () {
+  document.getElementById('start').style.display = 'none';
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+      .then(function (s) { document.getElementById('cam').srcObject = s; })
+      .catch(function () { showNote('カメラが使えないので背景モードで表示しています'); });
+  }
+  var begin = function () { if (!started) { started = true; initScene(); } };
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then(begin).catch(begin);
+  } else { begin(); }
+});
+function showNote(msg) { var n = document.getElementById('note'); n.style.display = 'block'; n.textContent = msg; }
+
+function initScene() {
+  if (!window.THREE) { var f = document.getElementById('fallback'); if (f) f.style.display = 'block'; return; }
+  var hint = document.getElementById('hint'); hint.style.display = 'block';
   var canvas = document.getElementById('fx');
-  var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: false });
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   var scene = new THREE.Scene();
-  var cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10); cam.position.z = 5;
-  function resize() { renderer.setSize(innerWidth, innerHeight); }
+  var camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.05, 60);
+  camera.position.set(0, 1.35, 0);
+  function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
   resize(); addEventListener('resize', resize);
-  var N = P.n, pos = new Float32Array(N * 3), col = new Float32Array(N * 3), life = new Float32Array(N), vel = new Float32Array(N * 2), seed = new Float32Array(N);
+
+  // ---- 端末の向き → カメラ（DeviceOrientationControls と同じ変換。効かない環境ではドラッグで見回す） ----
+  var orient = { has: false, q: new THREE.Quaternion() };
+  var zee = new THREE.Vector3(0, 0, 1), eu = new THREE.Euler(), q0 = new THREE.Quaternion(), q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+  addEventListener('deviceorientation', function (e) {
+    if (e.alpha === null || e.alpha === undefined) return;
+    orient.has = true;
+    var alpha = THREE.MathUtils.degToRad(e.alpha), beta = THREE.MathUtils.degToRad(e.beta || 0), gamma = THREE.MathUtils.degToRad(e.gamma || 0);
+    var so = THREE.MathUtils.degToRad((screen.orientation && screen.orientation.angle) || window.orientation || 0);
+    eu.set(beta, alpha, -gamma, 'YXZ');
+    orient.q.setFromEuler(eu); orient.q.multiply(q1); orient.q.multiply(q0.setFromAxisAngle(zee, -so));
+  });
+  var dragYaw = 0, dragPitch = -0.25, dragging = false, lastX = 0, lastY = 0, moved = 0;
+  canvas.addEventListener('touchstart', function (e) { dragging = true; moved = 0; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; }, { passive: true });
+  canvas.addEventListener('touchmove', function (e) {
+    if (!dragging) return;
+    var dx = e.touches[0].clientX - lastX, dy = e.touches[0].clientY - lastY; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+    moved += Math.abs(dx) + Math.abs(dy);
+    if (!orient.has) { dragYaw -= dx * 0.005; dragPitch -= dy * 0.005; dragPitch = Math.max(-1.2, Math.min(0.6, dragPitch)); }
+  }, { passive: true });
+  canvas.addEventListener('touchend', function (e) { dragging = false; if (moved < 12) placeAtCenter(); });
+  canvas.addEventListener('click', function () { placeAtCenter(); });
+
+  // ---- 置かれるもの一式（カード＋影＋粒子）を group にまとめる ----
+  var group = new THREE.Group(); scene.add(group);
+  var tilt = new THREE.Group(); tilt.rotation.x = -0.10; group.add(tilt);
+  var cardGroup = new THREE.Group(); cardGroup.position.y = 0.52; tilt.add(cardGroup);
+  var frame = new THREE.Mesh(new THREE.PlaneGeometry(0.98, 0.98), new THREE.MeshBasicMaterial({ color: new THREE.Color(CFG.color) }));
+  frame.position.z = -0.012; cardGroup.add(frame);
+  var cardMat = new THREE.MeshBasicMaterial({ color: 0x22222c });
+  var card = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), cardMat); cardGroup.add(card);
+  if (CFG.image) {
+    new THREE.TextureLoader().load(CFG.image, function (tex) {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      cardMat.map = tex; cardMat.color.set(0xffffff); cardMat.needsUpdate = true;
+      if (tex.image && tex.image.height && tex.image.width) { var a = tex.image.height / tex.image.width; card.scale.y = a; frame.scale.y = a; }
+    }, undefined, function () { /* 画像が落ちていたら色カードのまま成立させる */ });
+  }
+  // 影（床にだけ落ちる柔らかい丸影）
+  var sc = document.createElement('canvas'); sc.width = sc.height = 128;
+  var sg = sc.getContext('2d'), grad = sg.createRadialGradient(64, 64, 4, 64, 64, 62);
+  grad.addColorStop(0, 'rgba(0,0,0,0.42)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+  sg.fillStyle = grad; sg.fillRect(0, 0, 128, 128);
+  var shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sc), transparent: true, depthWrite: false }));
+  shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.012; group.add(shadow);
+
+  // ---- パーティクル（カードの周りの3D空間に湧く） ----
+  var N = P.n, pos = new Float32Array(N * 3), col = new Float32Array(N * 3), life = new Float32Array(N), vel = new Float32Array(N * 3), seed = new Float32Array(N);
   var ramp = P.ramp.map(function (c) { return new THREE.Color(c); });
-  function respawn(i, randomY) {
-    var x = (Math.random() * 2 - 1) * 1.05, y;
-    if (P.spawn === 'bottom') y = -1.05; else if (P.spawn === 'top') y = 1.05; else y = (Math.random() * 2 - 1) * 0.4;
-    if (randomY) y = Math.random() * 2 - 1;
-    pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = 0;
-    life[i] = Math.random() * 0.4 + 0.6;
+  function respawn(i, randY) {
+    var a = Math.random() * Math.PI * 2, r = 0.25 + Math.random() * 0.75;
+    pos[i * 3] = Math.cos(a) * r; pos[i * 3 + 2] = Math.sin(a) * r;
     var s = P.speed[0] + Math.random() * (P.speed[1] - P.speed[0]);
-    if (P.dir === 'up') { vel[i * 2] = (Math.random() - 0.5) * 0.1; vel[i * 2 + 1] = s * 0.55; }
-    else if (P.dir === 'down') { vel[i * 2] = (Math.random() - 0.5) * 0.08; vel[i * 2 + 1] = -s * 0.4; }
-    else { var a = Math.random() * Math.PI * 2; vel[i * 2] = Math.cos(a) * s * 0.5; vel[i * 2 + 1] = Math.sin(a) * s * 0.5; life[i] = Math.random() * 0.25 + 0.15; }
+    if (P.dir === 'up') { pos[i * 3 + 1] = randY ? Math.random() * 1.5 : 0.02; vel[i * 3] = 0; vel[i * 3 + 1] = s; vel[i * 3 + 2] = 0; life[i] = 0.7 + Math.random() * 0.5; }
+    else if (P.dir === 'down') { pos[i * 3 + 1] = randY ? Math.random() * 1.7 : 1.7; vel[i * 3] = 0; vel[i * 3 + 1] = -s; vel[i * 3 + 2] = 0; life[i] = 0.8 + Math.random() * 0.6; }
+    else { pos[i * 3] = (Math.random() - 0.5) * 0.3; pos[i * 3 + 1] = 0.55; pos[i * 3 + 2] = (Math.random() - 0.5) * 0.3; var th = Math.random() * Math.PI * 2, ph = Math.random() * Math.PI; vel[i * 3] = Math.sin(ph) * Math.cos(th) * s; vel[i * 3 + 1] = Math.cos(ph) * s * 0.7; vel[i * 3 + 2] = Math.sin(ph) * Math.sin(th) * s; life[i] = 0.25 + Math.random() * 0.3; }
     seed[i] = Math.random() * 100;
     var c = ramp[Math.floor(Math.random() * ramp.length)];
     col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
@@ -234,31 +299,76 @@ function startFx() {
   var geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  var mat = new THREE.PointsMaterial({ size: P.size / 100, vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
-  scene.add(new THREE.Points(geo, mat));
-  var t0 = performance.now();
-  (function loop(now) {
+  var points = new THREE.Points(geo, new THREE.PointsMaterial({ size: P.size / 420, vertexColors: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true }));
+  points.position.y = 0.02; group.add(points);
+
+  // ---- レティクル（画面中央の床の位置を示す輪） ----
+  var ret = new THREE.Group();
+  var ring = new THREE.Mesh(new THREE.RingGeometry(0.085, 0.105, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2; ret.add(ring);
+  var dot = new THREE.Mesh(new THREE.CircleGeometry(0.016, 20), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }));
+  dot.rotation.x = -Math.PI / 2; ret.add(dot);
+  ret.position.y = 0.015; scene.add(ret);
+
+  // ---- 配置：レイを仮想の床（y=0）に当てて置く ----
+  var ray = new THREE.Raycaster(), center = new THREE.Vector2(0, 0), hitP = new THREE.Vector3();
+  function groundHit() {
+    ray.setFromCamera(center, camera);
+    var o = ray.ray.origin, d = ray.ray.direction;
+    if (d.y > -0.06) return null;
+    var t = -o.y / d.y; if (t < 0.5 || t > 5) return null;
+    hitP.copy(o).addScaledVector(d, t);
+    var dist = Math.sqrt(hitP.x * hitP.x + hitP.z * hitP.z);
+    if (dist > 3.2) { hitP.x *= 3.2 / dist; hitP.z *= 3.2 / dist; }
+    if (dist < 0.55) { var d2 = Math.max(dist, 0.001); hitP.x *= 0.55 / d2; hitP.z *= 0.55 / d2; }
+    return hitP;
+  }
+  var placed = false, popT = 1;
+  function placeAtCenter() {
+    var h = groundHit(); if (!h) { showNote('床のほうを向けてタップしてね'); return; }
+    group.position.set(h.x, 0, h.z);
+    placed = true; popT = 0;
+    hint.textContent = '置いた！ タップで置き直せる ・ 近づいたり回り込んでみて';
+  }
+  // 最初は正面1.4mに仮置きして、すぐ絵が見えるようにする
+  group.position.set(0, 0, -1.4); placed = true; popT = 0;
+
+  var clock = new THREE.Clock();
+  (function loop() {
     requestAnimationFrame(loop);
-    var dt = Math.min((now - t0) / 1000, 0.05); t0 = now; var t = now / 1000;
+    var dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+    // カメラの向き
+    if (orient.has) { camera.quaternion.slerp(orient.q, 0.5); }
+    else { camera.quaternion.setFromEuler(new THREE.Euler(dragPitch, dragYaw, 0, 'YXZ')); }
+    // レティクル
+    var h = groundHit();
+    if (h) { ret.visible = true; ret.position.x = h.x; ret.position.z = h.z; var pulse = 1 + Math.sin(t * 3.2) * 0.07; ret.scale.set(pulse, 1, pulse); }
+    else ret.visible = false;
+    // 登場のポップ（easeOutBack）と、待機中の小さな揺れ・追従
+    if (popT < 1) { popT = Math.min(1, popT + dt / 0.55); var s = Math.max(0.001, easeOutBack(popT)); group.scale.set(s, s, s); }
+    else {
+      var sway = Math.sin(t * 0.9) * 0.02;
+      group.scale.set(1, 1 + sway * 0.4, 1);
+      tilt.rotation.z = Math.sin(t * 0.7) * 0.012;
+    }
+    // カードは常にこちらを向く（縦軸だけ）
+    var dx = camera.position.x - group.position.x, dz = camera.position.z - group.position.z;
+    var targetYaw = Math.atan2(dx, dz);
+    var cur = tilt.rotation.y, diff = targetYaw - cur;
+    while (diff > Math.PI) diff -= Math.PI * 2; while (diff < -Math.PI) diff += Math.PI * 2;
+    tilt.rotation.y = cur + diff * Math.min(1, dt * 7) + Math.sin(t * 0.8) * 0.004;
+    // 粒子
     for (var i = 0; i < N; i++) {
-      life[i] -= dt * (P.dir === 'burst' ? 1.6 : 0.35);
-      pos[i * 3] += (vel[i * 2] + Math.sin(t * 1.7 + seed[i]) * P.sway * 0.12) * dt;
-      pos[i * 3 + 1] += vel[i * 2 + 1] * dt;
-      if (life[i] <= 0 || pos[i * 3 + 1] > 1.15 || pos[i * 3 + 1] < -1.15) respawn(i, false);
+      life[i] -= dt * (P.dir === 'burst' ? 1.5 : 0.4);
+      pos[i * 3] += (vel[i * 3] + Math.sin(t * 1.6 + seed[i]) * P.sway * 0.12) * dt;
+      pos[i * 3 + 1] += vel[i * 3 + 1] * dt;
+      pos[i * 3 + 2] += (vel[i * 3 + 2] + Math.cos(t * 1.3 + seed[i]) * P.sway * 0.12) * dt;
+      if (life[i] <= 0 || pos[i * 3 + 1] > 1.9 || pos[i * 3 + 1] < -0.05) respawn(i, false);
     }
     geo.attributes.position.needsUpdate = true;
-    renderer.render(scene, cam);
-  })(t0);
+    renderer.render(scene, camera);
+  })();
 }
-document.getElementById('go').addEventListener('click', function () {
-  document.getElementById('start').style.display = 'none';
-  startFx();
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
-      .then(function (s) { document.getElementById('cam').srcObject = s; })
-      .catch(function () { var n = document.getElementById('note'); n.style.display = 'block'; n.textContent = 'カメラが使えないので背景モードで表示しています'; });
-  }
-});
 </script></body></html>`;
   return new Response(html, { status: 200, headers: htmlHeaders() });
 }
