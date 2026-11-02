@@ -532,6 +532,7 @@ ${cfg.image ? `<div id="fallback"><img src="${esc(cfg.image)}" alt=""></div>` : 
 <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
 <script>
 var CFG = ${jsJson(cfg)};
+var SPIN = /[?&]spin=1/.test(location.search);
 // ---- 3Dパーティクル（Ultra Elements の考え方：1エフェクト=1パラメータセット） ----
 var PARAMS = {
   flame:     { n: 260, dir: 'up',    speed: [0.5, 1.1], sway: 0.10, size: 30, ramp: ['#fff3b0', CFG.color, '#e62e00'] },
@@ -843,6 +844,7 @@ function initScene() {
       var rs = 0.25 + rp * 1.6; R.m.scale.set(rs, rs, 1);
       R.m.material.opacity = 0.85 * (1 - rp);
     }
+    if (SPIN) { var sa = performance.now() / 1000 * 0.45; camera.position.set(Math.sin(sa) * 4.2, 1.5, Math.cos(sa) * 4.2); camera.lookAt(0, 0.9, 0); }
     renderer.render(scene, camera);
   })();
 }
