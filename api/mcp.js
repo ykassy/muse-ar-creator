@@ -609,7 +609,102 @@ function initScene() {
       tex.colorSpace = THREE.SRGBColorSpace;
       cardMat.map = tex; cardMat.color.set(0xffffff); cardMat.needsUpdate = true;
       if (tex.image && tex.image.height && tex.image.width) { var a = tex.image.height / tex.image.width; card.scale.y = a; frame.scale.y = a; }
+      if (CFG.bg === 'transparent') buildPlate(tex);
     }, undefined, function () { /* 画像が落ちていたら色カードのまま成立させる */ });
+  }
+  // ---- 板レシピ方式：透過シルエットから半立体プレート（かき割り状）を生成し、頂点シェーダのスカッシュ＆ストレッチで跳ねさせる ----
+  var plateOn = false;
+  var deform = { uSquash: { value: 0 }, uHeight: { value: 1 } };
+  function addDeform(mat) {
+    mat.onBeforeCompile = function (sh) {
+      sh.uniforms.uSquash = deform.uSquash; sh.uniforms.uHeight = deform.uHeight;
+      sh.vertexShader = 'uniform float uSquash;\nuniform float uHeight;\n' + sh.vertexShader.replace('#include <begin_vertex>', [
+        '#include <begin_vertex>',
+        'float dyn_ = clamp(position.y / uHeight, 0.0, 1.0);',
+        'float dwgt_ = 0.35 + 0.65 * dyn_;',
+        'float dsy_ = mix(1.0, 1.0 - uSquash, dwgt_);',
+        'float dsxz_ = mix(1.0, 1.0 / sqrt(max(1.0 - uSquash, 0.25)), dwgt_);',
+        'transformed.y = position.y * dsy_;',
+        'transformed.x = position.x * dsxz_;',
+        'transformed.z = position.z * dsxz_;'
+      ].join('\n'));
+    };
+  }
+  function buildPlate(tex) {
+    try {
+      var img = tex.image; if (!img || !img.width) return;
+      var MAXD = 340, sc2 = Math.min(1, MAXD / Math.max(img.width, img.height));
+      var w = Math.max(2, Math.round(img.width * sc2)), h = Math.max(2, Math.round(img.height * sc2));
+      var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      var cx2 = cv.getContext('2d'); cx2.drawImage(img, 0, 0, w, h);
+      var data = cx2.getImageData(0, 0, w, h).data;
+      var mask = new Uint8Array(w * h);
+      for (var i = 0, pz = 0; i < data.length; i += 4, pz++) mask[pz] = data[i + 3] >= 128 ? 1 : 0;
+      var lab = new Int32Array(w * h).fill(-1);
+      var best = -1, bestN = 0, comp = 0, stack = [];
+      for (var s0 = 0; s0 < w * h; s0++) {
+        if (!mask[s0] || lab[s0] >= 0) continue;
+        var n = 0; stack.length = 0; stack.push(s0); lab[s0] = comp;
+        while (stack.length) { var q = stack.pop(); n++; var qx = q % w, qy = (q / w) | 0;
+          if (qx > 0 && mask[q - 1] && lab[q - 1] < 0) { lab[q - 1] = comp; stack.push(q - 1); }
+          if (qx < w - 1 && mask[q + 1] && lab[q + 1] < 0) { lab[q + 1] = comp; stack.push(q + 1); }
+          if (qy > 0 && mask[q - w] && lab[q - w] < 0) { lab[q - w] = comp; stack.push(q - w); }
+          if (qy < h - 1 && mask[q + w] && lab[q + w] < 0) { lab[q + w] = comp; stack.push(q + w); } }
+        if (n > bestN) { bestN = n; best = comp; }
+        comp++;
+      }
+      if (best < 0 || bestN < 40) return;
+      for (var m2 = 0; m2 < w * h; m2++) mask[m2] = lab[m2] === best ? 1 : 0;
+      var sx = -1, sy = -1;
+      findStart: for (var yy = 0; yy < h; yy++) { for (var xx = 0; xx < w; xx++) { if (mask[yy * w + xx]) { sx = xx; sy = yy; break findStart; } } }
+      var OFF = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+      function dirIdx(dx, dy) { for (var di = 0; di < 8; di++) if (OFF[di][0] === dx && OFF[di][1] === dy) return di; return 0; }
+      var contour = [], px2 = sx, py2 = sy, bkx = sx - 1, bky = sy, startBack = dirIdx(-1, 0), guard = 0;
+      while (guard++ < w * h * 3) {
+        contour.push([px2, py2]);
+        var bIdx = dirIdx(bkx - px2, bky - py2), next = null, nbk = null;
+        for (var kk = 1; kk <= 8; kk++) {
+          var idx = (bIdx + kk) % 8, nx = px2 + OFF[idx][0], ny = py2 + OFF[idx][1];
+          if (nx >= 0 && nx < w && ny >= 0 && ny < h && mask[ny * w + nx]) { next = [nx, ny]; var pb = (bIdx + kk - 1) % 8; nbk = [px2 + OFF[pb][0], py2 + OFF[pb][1]]; break; }
+        }
+        if (!next) break;
+        bkx = nbk[0]; bky = nbk[1]; px2 = next[0]; py2 = next[1];
+        if (px2 === sx && py2 === sy && dirIdx(bkx - px2, bky - py2) === startBack) break;
+      }
+      if (contour.length < 12) return;
+      var dec = [], lastP = null;
+      for (var ci = 0; ci < contour.length; ci++) { var cp = contour[ci]; if (!lastP || Math.abs(cp[0] - lastP[0]) + Math.abs(cp[1] - lastP[1]) >= 3) { dec.push(cp); lastP = cp; } }
+      if (dec.length < 8) dec = contour.filter(function (_, ix) { return ix % 3 === 0; });
+      for (var sm = 0; sm < 2; sm++) {
+        var out2 = [];
+        for (var cj = 0; cj < dec.length; cj++) {
+          var pA = dec[cj], pB = dec[(cj + 1) % dec.length];
+          out2.push([pA[0] * 0.75 + pB[0] * 0.25, pA[1] * 0.75 + pB[1] * 0.25]);
+          out2.push([pA[0] * 0.25 + pB[0] * 0.75, pA[1] * 0.25 + pB[1] * 0.75]);
+        }
+        dec = out2;
+      }
+      if (dec.length > 460) { var stp = Math.ceil(dec.length / 460); dec = dec.filter(function (_, ix) { return ix % stp === 0; }); }
+      var shape = new THREE.Shape();
+      dec.forEach(function (pt, ix) { var X = pt[0], Y = h - pt[1]; if (ix === 0) shape.moveTo(X, Y); else shape.lineTo(X, Y); });
+      shape.closePath();
+      var depth = Math.max(4, h * 0.07);
+      var geo = new THREE.ExtrudeGeometry(shape, { depth: depth, steps: 1, bevelEnabled: true, bevelThickness: depth * 0.22, bevelSize: Math.max(0.8, w * 0.004), bevelSegments: 1, UVGenerator: {
+        generateTopUV: function (g2, verts, a2, b2, c2) { return [new THREE.Vector2(verts[a2 * 3] / w, verts[a2 * 3 + 1] / h), new THREE.Vector2(verts[b2 * 3] / w, verts[b2 * 3 + 1] / h), new THREE.Vector2(verts[c2 * 3] / w, verts[c2 * 3 + 1] / h)]; },
+        generateSideWallUV: function () { return [new THREE.Vector2(0, 0), new THREE.Vector2(1, 0), new THREE.Vector2(1, 1), new THREE.Vector2(0, 1)]; }
+      } });
+      geo.translate(-w / 2, 0, -depth / 2);
+      var frontMat = new THREE.MeshBasicMaterial({ map: tex });
+      var sideMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(CFG.color) });
+      addDeform(frontMat); addDeform(sideMat);
+      var plate = new THREE.Mesh(geo, [frontMat, sideMat]);
+      var ps = 0.92 / w; plate.scale.set(ps, ps, ps);
+      plate.position.y = -0.47;
+      deform.uHeight.value = h;
+      cardGroup.add(plate);
+      card.visible = false;
+      plateOn = true;
+    } catch (e) { /* 失敗したら平面カードのまま成立させる */ }
   }
   // 影（床にだけ落ちる柔らかい丸影）
   var sc = document.createElement('canvas'); sc.width = sc.height = 128;
@@ -707,13 +802,21 @@ function initScene() {
       if (CFG.mo === 'hop' || CFG.mo === 'bounce') { // 跳ね続け、着地で潰れ、影が追従する
         var jp = Math.abs(Math.sin(t * (CFG.mo === 'hop' ? 2.7 : 3.5)));
         cardGroup.position.y = 0.52 + jp * (CFG.mo === 'hop' ? 0.17 : 0.11);
-        group.scale.set(1 + (1 - jp) * 0.07, 1 - (1 - jp) * 0.09, 1);
+        if (!plateOn) group.scale.set(1 + (1 - jp) * 0.07, 1 - (1 - jp) * 0.09, 1);
         var shj = 1 - jp * 0.22; shadow.scale.set(shj, shj, 1);
       }
       if (CFG.mo === 'sway') { // ゆらゆら：左右に揺れる
         tilt.rotation.z = Math.sin(t * 1.9) * 0.085;
         cardGroup.position.y = 0.52 + Math.sin(t * 2.6) * 0.012;
       }
+    }
+    if (plateOn) { // 板レシピ方式：頂点シェーダのスカッシュ＆ストレッチ（着地で潰れ、頂点で伸びる）
+      var sqT = 0;
+      if (CFG.mo === 'hop' || CFG.mo === 'bounce') { var jpq = Math.abs(Math.sin(t * (CFG.mo === 'hop' ? 2.7 : 3.5))); sqT = (1 - jpq) * 0.24 - jpq * jpq * 0.07; }
+      else if (CFG.mo === 'float') sqT = Math.sin(t * 1.6) * 0.03;
+      else if (CFG.mo === 'sway') sqT = Math.sin(t * 2.6) * 0.045;
+      if (popT < 1) sqT += -Math.sin(popT * Math.PI) * 0.10;
+      deform.uSquash.value += (sqT - deform.uSquash.value) * Math.min(1, dt * 16);
     }
     // カードは常にこちらを向く（縦軸だけ）
     var dx = camera.position.x - group.position.x, dz = camera.position.z - group.position.z;
