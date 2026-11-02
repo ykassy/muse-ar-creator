@@ -1,40 +1,51 @@
 # AR Creator — Talk to Muse, unlock AR
 
-An MCP connector for the **Meta Global AI Developer Hackathon** (Cerebral Valley, Oct 26 – Nov 4, 2026), built by HACK IT INC.
+An MCP connector for the **Meta Global AI Developer Hackathon** (Cerebral Valley, Oct 26 – Nov 4, 2026), built by HACK IT INC. (solo).
 
 Say a one-word theme in Muse, and this connector:
 
-1. **Composes** the AR server-side with the Meta Model API — `muse-spark-1.3` designs the title, overlay text, base color and particle effect (JSON), and `muse-image-1.0` generates one artwork image. Token usage is logged on every run as Tooling evidence.
-2. **Publishes** an app-less WebAR page (`/ar/<signed-token>`): camera view + a three.js particle effect (flame / ice / lightning / petal) + the generated artwork + title. Opens on any smartphone, no app install — the HACKAR:S way.
-3. **Certifies** the creation with a signed certificate page (`/c/<signed-token>`), one per creator.
+1. **Composes** the character server-side with the Meta Model API — `muse-spark-1.3` designs the title, overlay text, base color, the magic spell, and the character's **name and personality** (JSON); `muse-image-1.0` generates the artwork, plus face variants (happy / surprised / sad / angry) via image edits, each re-cut with the original silhouette mask. Token usage is logged on every run as Tooling evidence.
+2. **Builds a semi-3D model on the server** (`api/glb.mjs`, pure JS): the flat artwork becomes a plate with real thickness (1/15 of its height), an edge-coloured rim, a baked ground shadow, a 3-joint squash-and-stretch rig, and **nine named animation clips** — `idle` / `happy` / `surprised` / `sad` / `angry` / `talk` / `dangle` / `land` / `zap`.
+3. **Publishes into HACKAR:S** (our production WebAR platform) as a real project: the model, one of five real three.js **Ultra Elements** spells (lightning / fire / frozen lightning / starfall / light pillar), expression switching, and **Hand Play** — pinch the character to pick it up, poke it and it listens and answers in character (voice transcription + Spark reply + speech), hold up a palm to cast its spell.
+4. **Certifies** the creation with a signed certificate page (one per creator) that links the published work and prints the Meta Model API usage.
 
-If the model API is unavailable (no key, network error, bad output), composition falls back to a deterministic template so an AR always stands up.
+If the model API is unavailable, composition falls back to a deterministic template so a creation always stands up (publishing still requires the real pipeline and fails honestly rather than substituting another URL).
+
+## What was built when (hackathon rules)
+
+| Part | When |
+|---|---|
+| This connector: MCP server (`api/mcp.js`), the JS GLB builder (`api/glb.mjs`), the Blender reference pipeline (`pipeline/`), expression generation, the talk endpoint (`api/talk.js`) | **Built during the hackathon (Oct 26 – Nov 4, 2026)** |
+| HACKAR:S-side additions used by this connector: `POST /api/project-create` extensions (`ultraFx`, `handPlay`, `modelGlbUrl`, expression overlays), `POST /api/asset-store`, and the player features they drive (Ultra FX overlay, Hand Play interactions, emotion clip/expression switching) | **Built during the hackathon** (in the HACKAR:S repository) |
+| HACKAR:S platform itself — the no-code WebAR editor, SLAM player core, accounts, project storage at hackar-s.com | Pre-existing product of HACK IT INC., in production before the hackathon; used here as the publishing target |
+| **Ultra Elements** — the five spell effects are from the open-source three.js library [Humpalumps/ultra-elements](https://github.com/Humpalumps/ultra-elements), **MIT License** | Pre-existing third-party OSS, credited here as required |
 
 ## Architecture
 
-- `api/mcp.js` — single-file MCP server (Streamable HTTP, stateless) using `@modelcontextprotocol/sdk` (`McpServer` + `WebStandardStreamableHTTPServerTransport`, JSON responses).
-- State is held two ways: in server memory, and in an HMAC-signed "card" memo (`HC1.…`) that travels with the conversation — the same pattern proven in our an earlier in-house prototype connector tests, so progress survives reconnects.
-- AR and certificate pages are self-describing: the minimal display data is embedded in an HMAC-signed token in the URL, so pages survive server restarts.
-- The generated image is too large for a URL token (~430 KB WebP as `b64_json`), so it is held in server memory under a short ID and served from `/img/<id>`; if it is gone, the AR page hides the image card and still works with effects + text (graceful degradation). Token usage for both models is normalized and kept in the conversation card and in the AR token, and is printed on the certificate page as Tooling evidence.
-- `muse-spark-1.3` is a reasoning model: compose requests use `max_tokens: 2500`, retry once when the content comes back empty, strip code fences before parsing, and fall back to the template on failure.
-- `public/index.html` — landing page. `vercel.json` — rewrites `/mcp`, `/ar/:token`, `/c/:token`, `/img/:id` to the function.
+- `api/mcp.js` — single-file MCP server (Streamable HTTP, stateless) on `@modelcontextprotocol/sdk`. `api/glb.mjs` — the dependency-free GLB builder (the PNG codec is shared with `mcp.js`). `api/talk.js` — poke-to-talk endpoint (Muse Voice transcription + Muse Spark in-character reply).
+- **State & identity**: sessions are keyed by a random owner id carried in an HMAC-signed conversation card (`HC1.…`). A nickname alone never resumes another person's session — consent, theme and AR state travel only with the card. The server refuses to start when `CARD_SECRET` is unset (the old default was public, so cards would be forgeable).
+- **Persistence**: generated art, GLBs and face variants are stored through HACKAR:S `POST /api/asset-store` at compose time, so publishing works from any server instance; in-memory copies are only a cache.
+- `muse-spark-1.3` is a reasoning model: compose uses `max_tokens: 2500`, retries once on empty content, strips code fences, and falls back to the template on failure.
+- The Blender pipeline in `pipeline/` is the reference implementation the JS builder was ported from (same timelines, weights and proportions — the in-house plate recipe: thickness = height/15, rim colour = median edge colour, opaque flooded texture, mask eroded ~2px so the rim never opens a see-through hole).
 
 ## Tools
 
 | Tool | What it does |
 |---|---|
-| `start_create` | Consent check (nothing proceeds without an explicit yes), then collects the theme in the user's own words |
-| `compose_ar` | Runs Muse Spark + Muse Image via the Meta Model API, builds the composition, returns the public AR URL and a token-usage summary |
-| `publish_ar` | Returns the public URL and a QR-code link |
-| `issue_certificate` | Issues the certificate page (one per creator, re-issues the same link) |
+| `start_create` | Consent check (nothing proceeds without an explicit yes), binds the session, collects the theme in the user's own words |
+| `compose_ar` | Muse Spark composition (incl. name/persona/spell) + Muse Image artwork + face variants, builds and stores the semi-3D GLB |
+| `publish_ar` | Creates the real HACKAR:S project (GLB + Ultra spell + Hand Play + expressions) and returns the hackar-s.com URL — the only deliverable URL |
+| `remix_ar` | Same character, different spell; then publish again |
+| `issue_certificate` | Issues the certificate page (one per creator) with model usage and the work's URL |
 
 ## Setup
 
 Environment variables (Vercel project settings):
 
 - `MODEL_API_KEY` — Meta Model API key issued at dev.meta.ai. The $150 hackathon credit is consumed through this key.
-- `CARD_SECRET` — HMAC secret for the signed card / page tokens.
+- `CARD_SECRET` — HMAC secret for the signed card / page tokens. **Required**: the server refuses to start without it.
 - `PUBLIC_BASE_URL` — public origin of this deployment, e.g. `https://hackathon-ar-creator.vercel.app`.
+- `HACKARS_API_KEY` — API key for the HACKAR:S project-create / asset-store endpoints.
 
 ## Develop
 
@@ -47,4 +58,4 @@ Connect the deployed `/mcp` endpoint as a custom connector in the Muse app, then
 
 ## License
 
-MIT. The particle effects are a minimal original extraction of the ideas behind common three.js element effects (spawn / velocity / life / color ramp).
+This project's own code is MIT. The spell effects come from **Ultra Elements** by Humpalumps (https://github.com/Humpalumps/ultra-elements), MIT License, used unmodified in the HACKAR:S player.
