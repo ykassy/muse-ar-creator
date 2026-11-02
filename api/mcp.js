@@ -609,7 +609,7 @@ function initScene() {
       tex.colorSpace = THREE.SRGBColorSpace;
       cardMat.map = tex; cardMat.color.set(0xffffff); cardMat.needsUpdate = true;
       if (tex.image && tex.image.height && tex.image.width) { var a = tex.image.height / tex.image.width; card.scale.y = a; frame.scale.y = a; }
-      // 半立体プレート（buildPlate）は実機未検証のため無効化中。検証できたら有効化する。
+      if (CFG.bg === 'transparent') buildPlate(tex);
     }, undefined, function () { /* 画像が落ちていたら色カードのまま成立させる */ });
   }
   // ---- 板レシピ方式：透過シルエットから半立体プレート（かき割り状）を生成し、頂点シェーダのスカッシュ＆ストレッチで跳ねさせる ----
@@ -618,7 +618,7 @@ function initScene() {
   function addDeform(mat) {
     mat.onBeforeCompile = function (sh) {
       sh.uniforms.uSquash = deform.uSquash; sh.uniforms.uHeight = deform.uHeight;
-      sh.vertexShader = 'uniform float uSquash;\nuniform float uHeight;\n' + sh.vertexShader.replace('#include <begin_vertex>', [
+      sh.vertexShader = 'uniform float uSquash;\\nuniform float uHeight;\\n' + sh.vertexShader.replace('#include <begin_vertex>', [
         '#include <begin_vertex>',
         'float dyn_ = clamp(position.y / uHeight, 0.0, 1.0);',
         'float dwgt_ = 0.35 + 0.65 * dyn_;',
@@ -627,7 +627,7 @@ function initScene() {
         'transformed.y = position.y * dsy_;',
         'transformed.x = position.x * dsxz_;',
         'transformed.z = position.z * dsxz_;'
-      ].join('\n'));
+      ].join('\\n'));
     };
   }
   function buildPlate(tex) {
