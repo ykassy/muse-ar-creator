@@ -5,6 +5,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { createHmac } from 'node:crypto';
+import { inflateSync, deflateSync } from 'node:zlib';
 import { z } from 'zod';
 
 const BASE = process.env.PUBLIC_BASE_URL || 'https://hackathon-ar-creator.vercel.app';
@@ -98,24 +99,167 @@ async function callSpark(theme) {
   throw lastErr || new Error('spark failed');
 }
 
-async function callImage(theme, comp) {
-  const res = await fetch(`${API_BASE}/images/generations`, {
-    method: 'POST',
-    headers: { 'authorization': `Bearer ${MODEL_API_KEY}`, 'content-type': 'application/json' },
-    signal: AbortSignal.timeout(40_000),
-    body: JSON.stringify({
-      model: IMAGE_MODEL,
-      prompt: `A single charming mascot-like character illustration for an AR overlay, theme: "${theme}" (${comp.title}). Flat vector style, bold shapes, transparent-looking clean background in the base color ${comp.color}, no text, no letters, centered, full body, playful.`,
-      size: '1024x1024',
-    }),
+// クロマキーのキー色：被写体が緑系のテーマだけ青、それ以外は緑（被写体と背景を分けるため）
+const keyFor = (theme) => /(葉|緑|グリーン|カエル|森|草|抹茶|苔|leaf|green|frog|forest|moss)/i.test(String(theme || ''))
+  ? { name: 'blue', hex: '#0000FF', ch: 2 }
+  : { name: 'green', hex: '#00FF00', ch: 1 };
+
+async function callImage(theme, comp, background) {
+  const key = keyFor(theme);
+  const basePrompt = `A single charming mascot-like character illustration for an AR overlay, theme: "${theme}" (${comp.title}). Flat vector style, bold shapes, bold dark outline, no text, no letters, centered, full body, playful.`;
+  const prompt = background === 'transparent'
+    ? `${basePrompt} The character stands on a completely solid vivid ${key.name} (${key.hex}) chroma key background that fills the entire frame edge to edge. No shadow, no gradient, no floor, no ground line, no other objects, no floating decorations.`
+    : `${basePrompt} Clean solid background in the base color ${comp.color}.`;
+  const mkBody = (png) => JSON.stringify({
+    model: IMAGE_MODEL, prompt, size: '1024x1024',
+    ...(png ? { output_format: 'png' } : {}),
   });
-  if (!res.ok) throw new Error(`image http ${res.status}`);
-  const data = await res.json();
-  const d = data?.data?.[0] || {};
-  // 返却は URL ではなく data[0].b64_json（WebP）。バイト列は呼び出し側で /img/<id> 配信に回す。
-  if (d.b64_json) return { b64: d.b64_json, remote: null, usage: data?.usage || null };
-  if (d.url) return { b64: null, remote: d.url, usage: data?.usage || null };
-  throw new Error('image returned no data');
+  const attempt = async (png) => {
+    const res = await fetch(`${API_BASE}/images/generations`, {
+      method: 'POST',
+      headers: { 'authorization': `Bearer ${MODEL_API_KEY}`, 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(40_000),
+      body: mkBody(png),
+    });
+    if (!res.ok) throw new Error(`image http ${res.status}`);
+    const data = await res.json();
+    const d = data?.data?.[0] || {};
+    // 返却は URL ではなく data[0].b64_json。バイト列は呼び出し側で /img/<id> 配信に回す。
+    if (d.b64_json) return { b64: d.b64_json, remote: null, usage: data?.usage || null, type: png ? 'image/png' : 'image/webp', keyCh: key.ch };
+    if (d.url) return { b64: null, remote: d.url, usage: data?.usage || null, type: 'image/webp', keyCh: key.ch };
+    throw new Error('image returned no data');
+  };
+  if (background === 'transparent') {
+    try { return await attempt(true); } // PNG で受けてサーバー側で色抜きする
+    catch (e) { console.log('[AR] image-png-failed', JSON.stringify({ error: String(e?.message || e) })); return await attempt(false); }
+  }
+  return attempt(false);
+}
+
+// ---- PNG コーデック＋クロマキー（純JS・依存なし。8bit / color type 2,6 / 非インタレース） ----
+function decodePng(buf) {
+  if (buf.length < 8 || buf.readUInt32BE(0) !== 0x89504e47) throw new Error('not png');
+  let pos = 8, w = 0, h = 0, bitDepth = 0, colorType = 0, interlace = 0;
+  const idats = [];
+  while (pos < buf.length) {
+    const len = buf.readUInt32BE(pos);
+    const type = buf.toString('ascii', pos + 4, pos + 8);
+    const data = buf.subarray(pos + 8, pos + 8 + len);
+    if (type === 'IHDR') { w = data.readUInt32BE(0); h = data.readUInt32BE(4); bitDepth = data[8]; colorType = data[9]; interlace = data[12]; }
+    else if (type === 'IDAT') idats.push(data);
+    else if (type === 'IEND') break;
+    pos += 12 + len;
+  }
+  if (bitDepth !== 8 || interlace !== 0 || (colorType !== 2 && colorType !== 6)) throw new Error('unsupported png format');
+  const bpp = colorType === 6 ? 4 : 3;
+  const raw = inflateSync(Buffer.concat(idats));
+  const stride = w * bpp;
+  const out = new Uint8Array(w * h * 4);
+  let p = 0;
+  let prev = new Uint8Array(stride);
+  for (let y = 0; y < h; y++) {
+    const f = raw[p++];
+    const row = raw.subarray(p, p + stride); p += stride;
+    const cur = new Uint8Array(stride);
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? cur[x - bpp] : 0;
+      const b = prev[x];
+      const c = x >= bpp ? prev[x - bpp] : 0;
+      let v = row[x];
+      if (f === 1) v = (v + a) & 255;
+      else if (f === 2) v = (v + b) & 255;
+      else if (f === 3) v = (v + ((a + b) >> 1)) & 255;
+      else if (f === 4) {
+        const pa = Math.abs(b - c), pb = Math.abs(a - c), pc = Math.abs(a + b - 2 * c);
+        v = (v + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c)) & 255;
+      }
+      cur[x] = v;
+    }
+    for (let x = 0; x < w; x++) {
+      const s = x * bpp, d = (y * w + x) * 4;
+      out[d] = cur[s]; out[d + 1] = cur[s + 1]; out[d + 2] = cur[s + 2];
+      out[d + 3] = bpp === 4 ? cur[s + 3] : 255;
+    }
+    prev = cur;
+  }
+  return { w, h, rgba: out };
+}
+const PNG_CRC_TABLE = (() => {
+  const t = new Int32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c; }
+  return t;
+})();
+function pngChunk(type, data) {
+  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+  const td = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+  let c = 0xffffffff;
+  for (let i = 0; i < td.length; i++) c = PNG_CRC_TABLE[(c ^ td[i]) & 255] ^ (c >>> 8);
+  const crc = Buffer.alloc(4); crc.writeUInt32BE((c ^ 0xffffffff) >>> 0);
+  return Buffer.concat([len, td, crc]);
+}
+function encodePng(w, h, rgba) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = 6;
+  const raw = Buffer.alloc(h * (1 + w * 4));
+  for (let y = 0; y < h; y++) {
+    raw[y * (1 + w * 4)] = 0;
+    Buffer.from(rgba.buffer, rgba.byteOffset + y * w * 4, w * 4).copy(raw, y * (1 + w * 4) + 1);
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', ihdr), pngChunk('IDAT', deflateSync(raw, { level: 6 })), pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+// キー色の「勝ち具合」でアルファを作り、最大の連結成分（本体）だけ残し、フチの色かぶりを抑える
+function keyOut(rgba, w, h, keyChannel) {
+  const n = w * h;
+  const alpha = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2];
+    const key = keyChannel === 1 ? g : b;
+    const other = keyChannel === 1 ? Math.max(r, b) : Math.max(r, g);
+    let a = (110 - (key - other)) / 110; if (a < 0) a = 0; else if (a > 1) a = 1;
+    alpha[i] = a * 255;
+  }
+  const sw = Math.max(1, Math.floor(w / 4)), sh = Math.max(1, Math.floor(h / 4));
+  const sm = new Uint8Array(sw * sh);
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) sm[y * sw + x] = alpha[(y * 4) * w + x * 4] > 110 ? 1 : 0;
+  const lab = new Int32Array(sw * sh).fill(-1);
+  let best = -1, bestSize = 0, cur = 0;
+  const stack = [];
+  for (let s = 0; s < sw * sh; s++) {
+    if (!sm[s] || lab[s] >= 0) continue;
+    let size = 0; stack.length = 0; stack.push(s); lab[s] = cur;
+    while (stack.length) {
+      const q = stack.pop(); size++;
+      const qx = q % sw, qy = (q / sw) | 0;
+      if (qx > 0 && sm[q - 1] && lab[q - 1] < 0) { lab[q - 1] = cur; stack.push(q - 1); }
+      if (qx < sw - 1 && sm[q + 1] && lab[q + 1] < 0) { lab[q + 1] = cur; stack.push(q + 1); }
+      if (qy > 0 && sm[q - sw] && lab[q - sw] < 0) { lab[q - sw] = cur; stack.push(q - sw); }
+      if (qy < sh - 1 && sm[q + sw] && lab[q + sw] < 0) { lab[q + sw] = cur; stack.push(q + sw); }
+    }
+    if (size > bestSize) { bestSize = size; best = cur; }
+    cur++;
+  }
+  if (best >= 0 && cur > 1) {
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (lab[((y / 4) | 0) * sw + ((x / 4) | 0)] !== best) alpha[y * w + x] = 0;
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const a = alpha[i];
+    if (a < 255) {
+      if (keyChannel === 1) { const mx = Math.max(rgba[i * 4], rgba[i * 4 + 2]); if (rgba[i * 4 + 1] > mx + 12) rgba[i * 4 + 1] = mx + 12; }
+      else { const mx = Math.max(rgba[i * 4], rgba[i * 4 + 1]); if (rgba[i * 4 + 2] > mx + 12) rgba[i * 4 + 2] = mx + 12; }
+    }
+    rgba[i * 4 + 3] = a;
+  }
+}
+function makeTransparent(buf, keyChannel) {
+  const { w, h, rgba } = decodePng(buf);
+  keyOut(rgba, w, h, keyChannel);
+  return encodePng(w, h, rgba);
 }
 
 // Spark が返した構成を安全な値に寄せる
@@ -171,7 +315,7 @@ const jsJson = (obj) => JSON.stringify(obj).replace(/</g, '\\u003c');
 function arPage(tok) {
   const p = readTok(tok);
   if (!p) return new Response(pageShell('リンクが無効です', '<p>この AR のリンクは確認できませんでした。Muse で作り直してね。</p>'), { status: 404, headers: htmlHeaders() });
-  const cfg = { title: p.ti, text: p.tx, color: p.c, effect: p.e, theme: p.th, image: p.im ? `/img/${p.im}` : null };
+  const cfg = { title: p.ti, text: p.tx, color: p.c, effect: p.e, theme: p.th, image: p.im ? `/img/${p.im}` : null, bg: p.bg || 'card', mo: p.mo || 'bounce' };
   const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${esc(p.ti)} — AR Creator</title>
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#0b0b10;font-family:-apple-system,'Hiragino Sans',sans-serif;color:#fff}
@@ -266,7 +410,8 @@ function initScene() {
   var cardGroup = new THREE.Group(); cardGroup.position.y = 0.52; tilt.add(cardGroup);
   var frame = new THREE.Mesh(new THREE.PlaneGeometry(0.98, 0.98), new THREE.MeshBasicMaterial({ color: new THREE.Color(CFG.color) }));
   frame.position.z = -0.012; cardGroup.add(frame);
-  var cardMat = new THREE.MeshBasicMaterial({ color: 0x22222c });
+  if (CFG.bg === 'transparent') frame.visible = false; // 透過モードでは色枠を出さず、キャラだけを浮かせる
+  var cardMat = new THREE.MeshBasicMaterial({ color: 0x22222c, transparent: true });
   var card = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), cardMat); cardGroup.add(card);
   if (CFG.image) {
     new THREE.TextureLoader().load(CFG.image, function (tex) {
@@ -326,14 +471,15 @@ function initScene() {
     return hitP;
   }
   var placed = false, popT = 1;
+  var startPop = function () { popT = CFG.mo === 'still' ? 1 : 0; };
   function placeAtCenter() {
     var h = groundHit(); if (!h) { showNote('床のほうを向けてタップしてね'); return; }
     group.position.set(h.x, 0, h.z);
-    placed = true; popT = 0;
+    placed = true; startPop();
     hint.textContent = '置いた！ タップで置き直せる ・ 近づいたり回り込んでみて';
   }
   // 最初は正面1.4mに仮置きして、すぐ絵が見えるようにする
-  group.position.set(0, 0, -1.4); placed = true; popT = 0;
+  group.position.set(0, 0, -1.4); placed = true; startPop();
 
   var clock = new THREE.Clock();
   (function loop() {
@@ -346,12 +492,16 @@ function initScene() {
     var h = groundHit();
     if (h) { ret.visible = true; ret.position.x = h.x; ret.position.z = h.z; var pulse = 1 + Math.sin(t * 3.2) * 0.07; ret.scale.set(pulse, 1, pulse); }
     else ret.visible = false;
-    // 登場のポップ（easeOutBack）と、待機中の小さな揺れ・追従
-    if (popT < 1) { popT = Math.min(1, popT + dt / 0.55); var s = Math.max(0.001, easeOutBack(popT)); group.scale.set(s, s, s); }
+    // 登場のポップ（bounce=easeOutBack / float=なめらかに）と、待機中の揺れ・浮遊
+    if (popT < 1) { popT = Math.min(1, popT + dt / (CFG.mo === 'float' ? 0.85 : 0.55)); var s = Math.max(0.001, CFG.mo === 'float' ? easeInOutSine(popT) : easeOutBack(popT)); group.scale.set(s, s, s); }
     else {
       var sway = Math.sin(t * 0.9) * 0.02;
       group.scale.set(1, 1 + sway * 0.4, 1);
       tilt.rotation.z = Math.sin(t * 0.7) * 0.012;
+      if (CFG.mo === 'float') { // ふわふわ：カード全体が上下に漂い、影が追従する
+        cardGroup.position.y = 0.52 + Math.sin(t * 1.6) * 0.045;
+        var shs = 1 - Math.sin(t * 1.6) * 0.06; shadow.scale.set(shs, shs, 1);
+      }
     }
     // カードは常にこちらを向く（縦軸だけ）
     var dx = camera.position.x - group.position.x, dz = camera.position.z - group.position.z;
@@ -451,21 +601,25 @@ function buildServer() {
 
   server.registerTool('compose_ar', {
     title: 'ARの中身を組み立てる',
-    description: 'テーマからARの中身（タイトル・表示テキスト・色・エフェクト・素材画像）をサーバー側の Meta モデルで組み立てる。テーマが決まったら呼ぶ。返ってきた公開URLと要約（どのモデルが何トークン使ったか）をそのままユーザーに伝える。',
+    description: 'テーマからARの中身（タイトル・表示テキスト・色・エフェクト・素材画像）をサーバー側の Meta モデルで組み立てる。テーマが決まったら呼ぶ。呼ぶ前に、ユーザーの意向がまだ分からなければ、2つだけ短く聞いてから呼ぶこと：①背景は「キャラだけ透過（背景なし）」か「カード型（背景あり）」か。②登場と動きは「バウンス（弾んで登場）」「ふわふわ（浮いて揺れる）」「そのまま（静止）」のどれか。ユーザーが「おまかせ」と言ったら聞かずに既定（透過＋バウンス）で呼ぶ。既に聞いている・決まっている場合は聞き直さない。返ってきた公開URLと要約（どのモデルが何トークン使ったか）をそのままユーザーに伝える。',
     inputSchema: {
       nickname: nickArg,
       theme: z.string().optional().describe('テーマ（一言）。前に start_create で受け取っていれば省略可'),
+      background: z.enum(['transparent', 'card']).optional().describe('背景：transparent=キャラだけ透過（既定）、card=カード型'),
+      motion: z.enum(['bounce', 'float', 'still']).optional().describe('登場と動き：bounce=弾んで登場（既定）、float=浮いて揺れる、still=静止'),
       card: cardArg,
     },
     annotations: { title: 'ARの中身を組み立てる', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  }, async ({ nickname, theme, card }) => {
+  }, async ({ nickname, theme, background, motion, card }) => {
     const u = getU(nickname, card);
     if (theme) u.theme = String(theme).slice(0, 60);
     if (!u.theme) {
       return { content: [{ type: 'text', text: 'テーマがまだ決まってないみたい。先に start_create でテーマを聞いてね。' }, memo(u)], structuredContent: { needsTheme: true, card: packCard(u) } };
     }
     const th = u.theme;
-    let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [];
+    const bgChoice = background || 'transparent';
+    const moChoice = motion || 'bounce';
+    let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [], transparentApplied = false;
     if (MODEL_API_KEY) {
       try {
         const r = await callSpark(th);
@@ -474,10 +628,18 @@ function buildServer() {
       } catch (e) { console.log('[AR] spark-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('構成モデルが応答しなかったのでテンプレート構成に切り替えました'); }
       if (comp) {
         try {
-          const r = await callImage(th, comp);
+          const r = await callImage(th, comp, bgChoice);
           imageUsage = r.usage;
           imgId = Math.floor(Math.random() * 36 ** 6).toString(36).toUpperCase().padStart(6, '0');
-          if (r.b64) imgs.set(imgId, { buf: Buffer.from(r.b64, 'base64'), type: 'image/webp' });
+          if (r.b64) {
+            let buf = Buffer.from(r.b64, 'base64');
+            let type = r.type || 'image/webp';
+            if (bgChoice === 'transparent' && type === 'image/png') {
+              try { buf = makeTransparent(buf, r.keyCh || 1); transparentApplied = true; }
+              catch (ke) { console.log('[AR] keying-failed', JSON.stringify({ theme: th, error: String(ke?.message || ke) })); notes.push('透過処理ができなかったので、そのままの画像で表示します'); }
+            }
+            imgs.set(imgId, { buf, type });
+          }
           else if (r.remote) imgs.set(imgId, { remote: r.remote });
           console.log('[AR] model-usage', JSON.stringify({ at: new Date().toISOString(), model: IMAGE_MODEL, theme: th, usage: imageUsage ?? 'n/a' }));
         } catch (e) { console.log('[AR] image-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('素材画像の生成に失敗したので色の背景で代替します'); }
@@ -486,23 +648,25 @@ function buildServer() {
       notes.push('APIキー未設定のためテンプレート構成です');
     }
     if (!comp) comp = fallbackComp(th);
+    const effBg = transparentApplied ? 'transparent' : 'card';
 
     // usage は Tooling の証拠として、カードとARトークン（→制作証明）の両方に保持する
     const usage = (sparkUsage || imageUsage) ? { s: normUsage(sparkUsage), i: normUsage(imageUsage) } : null;
     u.usage = usage;
 
     const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-    const arTok = packTok({ i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage });
+    const arTok = packTok({ i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: effBg, mo: moChoice });
     u.arTok = arTok; u.arId = arId; u.certTok = null; // 新しいARを作ったら証明は作り直し
     const url = `${BASE}/ar/${arTok}`;
     const summary = usedModel
       ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}）`
       : 'テンプレート構成で組み立てました（モデル未使用）';
-    const text = `できたよ！「${comp.title}」\n${comp.text}\nエフェクト：${comp.effect}／基調色：${comp.color}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n公開URL（スマホで開いてね）：\n${url}\n\nこのまま publish_ar で公開リンクを出すね。`;
-    console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect }));
+    const styleLine = `背景：${transparentApplied ? '透過（キャラだけ浮き出る）' : 'カード型'}／動き：${{ bounce: 'バウンスで登場', float: 'ふわふわ浮く', still: 'そのまま静止' }[moChoice]}`;
+    const text = `できたよ！「${comp.title}」\n${comp.text}\nエフェクト：${comp.effect}／基調色：${comp.color}\n${styleLine}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n公開URL（スマホで開いてね）：\n${url}\n\nこのまま publish_ar で公開リンクを出すね。`;
+    console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, bg: effBg, mo: moChoice, transparentApplied }));
     return {
       content: [{ type: 'text', text }, memo(u)],
-      structuredContent: { url, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, card: packCard(u) },
+      structuredContent: { url, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, background: effBg, motion: moChoice, transparentApplied, card: packCard(u) },
     };
   });
 
@@ -533,6 +697,8 @@ function buildServer() {
               color: p.c || '#FFC2D6',
               imageBase64: img.buf.toString('base64'),
               imageContentType: img.type === 'image/png' ? 'image/png' : 'image/webp',
+              entranceAnim: (p.mo || 'bounce') === 'float' ? 'fadeIn' : (p.mo || 'bounce') === 'still' ? 'none' : 'bounce',
+              billboard: (p.mo || 'bounce') === 'float',
             }),
           });
           const j = await r.json().catch(() => ({}));
