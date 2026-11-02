@@ -70,7 +70,7 @@ async function fetchSpark(theme) {
       max_tokens: 2500,
       messages: [
         { role: 'system', content: 'You are an AR experience composer for an app-less WebAR product. Reply with ONE JSON object only, no markdown, no code fences, no commentary.' },
-        { role: 'user', content: `Compose a small AR overlay for the theme: "${theme}".\nReturn JSON with exactly these keys:\n- "title": a short English title, at most 5 words\n- "text": one English line shown over the camera view, at most 90 characters\n- "color": one base color as #RRGGBB that matches the mood\n- "effect": one of "flame", "ice", "lightning", "petal" — pick the particle effect that best matches the theme` },
+        { role: 'user', content: `Compose a small AR overlay for the theme: "${theme}".\nReturn JSON with exactly these keys:\n- "title": a short English title, at most 5 words\n- "text": one English line shown over the camera view, at most 90 characters\n- "color": one base color as #RRGGBB that matches the mood\n- "effect": one of "flame", "ice", "lightning", "petal" — pick the particle effect that best matches the theme\n- \"action\": one short English sentence describing how the character moves in a seamless in-place loop (e.g. \"hops happily with squash and stretch\", \"sways gently like a jellyfish\")` },
       ],
     }),
   });
@@ -262,6 +262,193 @@ function makeTransparent(buf, keyChannel) {
 }
 
 // Spark が返した構成を安全な値に寄せる
+// ---- animated GIF synthesis: bake looping character motion from the still cutout ----
+// The HACKAR:S player loops GIF overlays natively (isGif), so a baked GIF is
+// what makes the character keep moving there. Frames are transforms of the
+// one generated still: hop / bounce / float / sway, bottom-center pivot.
+function scaleRgba(img, tw, th) {
+  const { w, h, rgba: data } = img;
+  const out = new Uint8Array(tw * th * 4);
+  const xr = w / tw, yr = h / th;
+  for (let y = 0; y < th; y++) {
+    for (let x = 0; x < tw; x++) {
+      const gx = (x + 0.5) * xr - 0.5, gy = (y + 0.5) * yr - 0.5;
+      const x0 = Math.max(0, Math.floor(gx)), y0 = Math.max(0, Math.floor(gy));
+      const x1 = Math.min(w - 1, x0 + 1), y1 = Math.min(h - 1, y0 + 1);
+      const fx = Math.min(1, Math.max(0, gx - x0)), fy = Math.min(1, Math.max(0, gy - y0));
+      for (let c = 0; c < 4; c++) {
+        const top = data[(y0 * w + x0) * 4 + c] * (1 - fx) + data[(y0 * w + x1) * 4 + c] * fx;
+        const bot = data[(y1 * w + x0) * 4 + c] * (1 - fx) + data[(y1 * w + x1) * 4 + c] * fx;
+        out[(y * tw + x) * 4 + c] = Math.round(top * (1 - fy) + bot * fy);
+      }
+    }
+  }
+  return { w: tw, h: th, rgba: out };
+}
+function xformFrame(img, o) {
+  const { w, h, rgba: data } = img;
+  const out = new Uint8Array(w * h * 4);
+  const px = w / 2, py = h;
+  const cos = Math.cos(o.rot || 0), sin = Math.sin(o.rot || 0);
+  const sx = o.sx || 1, sy = o.sy || 1, dy = o.dy || 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dx = x - px, dyy = (y - dy) - py;
+      const rx = dx * cos + dyy * sin, ry = -dx * sin + dyy * cos;
+      const srcX = Math.round(px + rx / sx), srcY = Math.round(py + ry / sy);
+      if (srcX < 0 || srcY < 0 || srcX >= w || srcY >= h) continue;
+      const si = (srcY * w + srcX) * 4, di = (y * w + x) * 4;
+      out[di] = data[si]; out[di + 1] = data[si + 1]; out[di + 2] = data[si + 2]; out[di + 3] = data[si + 3];
+    }
+  }
+  return { w, h, rgba: out };
+}
+function buildPalette(img, maxColors = 255) {
+  const d = img.rgba;
+  const pixels = [];
+  for (let i = 0; i < d.length; i += 32) {
+    if (d[i + 3] >= 128) pixels.push([d[i], d[i + 1], d[i + 2]]);
+  }
+  if (!pixels.length) return [[255, 0, 255]];
+  let boxes = [pixels];
+  while (boxes.length < maxColors) {
+    let bi = -1, bc = 0, bestScore = -1;
+    boxes.forEach((box, idx) => {
+      if (box.length < 2) return;
+      const min = [255, 255, 255], max = [0, 0, 0];
+      for (const p of box) for (let c = 0; c < 3; c++) { if (p[c] < min[c]) min[c] = p[c]; if (p[c] > max[c]) max[c] = p[c]; }
+      let ch = 0, range = -1;
+      for (let c = 0; c < 3; c++) { const r = max[c] - min[c]; if (r > range) { range = r; ch = c; } }
+      const score = range * box.length;
+      if (score > bestScore) { bestScore = score; bi = idx; bc = ch; }
+    });
+    if (bi < 0) break;
+    const box = boxes.splice(bi, 1)[0];
+    box.sort((a, b) => a[bc] - b[bc]);
+    const mid = box.length >> 1;
+    boxes.push(box.slice(0, mid), box.slice(mid));
+  }
+  return boxes.map((box) => {
+    const s = [0, 0, 0];
+    for (const p of box) { s[0] += p[0]; s[1] += p[1]; s[2] += p[2]; }
+    const n = Math.max(1, box.length);
+    return [Math.round(s[0] / n), Math.round(s[1] / n), Math.round(s[2] / n)];
+  });
+}
+function mapToPalette(img, palette) {
+  const idx = new Uint8Array(img.w * img.h);
+  const cache = new Map();
+  const d = img.rgba;
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    if (d[i + 3] < 128) { idx[p] = 0; continue; }
+    const key = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+    let v = cache.get(key);
+    if (v === undefined) {
+      let best = 1, bd = Infinity;
+      for (let j = 1; j < palette.length; j++) {
+        const dr = d[i] - palette[j][0], dg = d[i + 1] - palette[j][1], db = d[i + 2] - palette[j][2];
+        const dist = dr * dr + dg * dg + db * db;
+        if (dist < bd) { bd = dist; best = j; }
+      }
+      v = best; cache.set(key, v);
+    }
+    idx[p] = v;
+  }
+  return idx;
+}
+function gifLzw(indices, minCodeSize) {
+  const bytes = [];
+  let acc = 0, accBits = 0;
+  const clearCode = 1 << minCodeSize, eoiCode = clearCode + 1;
+  let codeSize = minCodeSize + 1;
+  let dict = new Map(), nextCode = eoiCode + 1;
+  function emit(code) {
+    acc |= code << accBits; accBits += codeSize;
+    while (accBits >= 8) { bytes.push(acc & 0xff); acc >>= 8; accBits -= 8; }
+  }
+  function resetDict() { dict = new Map(); nextCode = eoiCode + 1; codeSize = minCodeSize + 1; }
+  emit(clearCode);
+  let prevCode = indices[0];
+  for (let i = 1; i < indices.length; i++) {
+    const k = indices[i];
+    const key = prevCode * 256 + k;
+    const existing = dict.get(key);
+    if (existing !== undefined) { prevCode = existing; continue; }
+    emit(prevCode);
+    dict.set(key, nextCode++);
+    if (nextCode - 1 === (1 << codeSize) && codeSize < 12) codeSize++;
+    if (nextCode > 4095) { emit(clearCode); resetDict(); }
+    prevCode = k;
+  }
+  emit(prevCode);
+  emit(eoiCode);
+  if (accBits > 0) bytes.push(acc & 0xff);
+  return Buffer.from(bytes);
+}
+function motionFrameOpts(motion, i, n) {
+  const t = i / n, TAU = Math.PI * 2;
+  if (motion === 'hop') {
+    const s = Math.sin(Math.PI * t), contact = 1 - s;
+    return { dy: -Math.round(36 * s), sy: 1 - 0.12 * contact + 0.04 * s, sx: 1 + 0.09 * contact - 0.02 * s, rot: 0 };
+  }
+  if (motion === 'bounce') {
+    const tt = (t * 2) % 1, s = Math.sin(Math.PI * tt), contact = 1 - s;
+    return { dy: -Math.round(22 * s), sy: 1 - 0.16 * contact + 0.03 * s, sx: 1 + 0.11 * contact - 0.02 * s, rot: 0 };
+  }
+  if (motion === 'float') {
+    return { dy: -Math.round(12 + 9 * Math.sin(TAU * t)), sy: 1 + 0.02 * Math.sin(TAU * t), sx: 1, rot: 0.03 * Math.sin(TAU * t) };
+  }
+  if (motion === 'sway') {
+    return { dy: -4, sy: 1, sx: 1, rot: 0.10 * Math.sin(TAU * t) };
+  }
+  return { dy: 0, sy: 1, sx: 1, rot: 0 };
+}
+function makeAnimGif(pngBuf, motion) {
+  const src = decodePng(pngBuf);
+  const maxDim = 640;
+  const scale = Math.min(1, (maxDim * 0.86) / Math.max(src.w, src.h));
+  const inner = scale < 1 ? scaleRgba(src, Math.round(src.w * scale), Math.round(src.h * scale)) : src;
+  // pad onto a square canvas (headroom so hops/rotations never clip the frame)
+  const S = Math.round(Math.max(inner.w, inner.h) / 0.86);
+  const canvas = new Uint8Array(S * S * 4);
+  const ox = Math.round((S - inner.w) / 2), oy = S - inner.h;
+  for (let y = 0; y < inner.h; y++) {
+    canvas.set(inner.rgba.subarray(y * inner.w * 4, (y + 1) * inner.w * 4), ((y + oy) * S + ox) * 4);
+  }
+  const img = { w: S, h: S, rgba: canvas };
+  const colors = buildPalette(img);
+  const palette = [[0, 0, 0], ...colors].slice(0, 256);
+  while (palette.length < 256) palette.push([0, 0, 0]);
+  const N = 12, delay = motion === 'bounce' ? 8 : 9;
+  const parts = [];
+  const head = Buffer.alloc(13);
+  head.write('GIF89a', 0, 'ascii');
+  head.writeUInt16LE(img.w, 6); head.writeUInt16LE(img.h, 8);
+  head[10] = 0xf7; head[11] = 0; head[12] = 0;
+  parts.push(head);
+  const gct = Buffer.alloc(256 * 3);
+  palette.forEach((c, i) => { gct[i * 3] = c[0]; gct[i * 3 + 1] = c[1]; gct[i * 3 + 2] = c[2]; });
+  parts.push(gct);
+  parts.push(Buffer.from([0x21, 0xff, 0x0b, 0x4e, 0x45, 0x54, 0x53, 0x43, 0x41, 0x50, 0x45, 0x32, 0x2e, 0x30, 0x03, 0x01, 0x00, 0x00, 0x00]));
+  for (let i = 0; i < N; i++) {
+    const frame = xformFrame(img, motionFrameOpts(motion, i, N));
+    const idx = mapToPalette(frame, palette);
+    const lzw = gifLzw(idx, 8);
+    const gce = Buffer.from([0x21, 0xf9, 0x04, 0x09, delay & 0xff, (delay >> 8) & 0xff, 0x00, 0x00]);
+    const idesc = Buffer.alloc(10);
+    idesc[0] = 0x2c;
+    idesc.writeUInt16LE(img.w, 5); idesc.writeUInt16LE(img.h, 7);
+    parts.push(gce, idesc, Buffer.from([8]));
+    for (let off = 0; off < lzw.length; off += 255) {
+      const chunk = lzw.subarray(off, Math.min(lzw.length, off + 255));
+      parts.push(Buffer.from([chunk.length]), chunk);
+    }
+    parts.push(Buffer.from([0]));
+  }
+  parts.push(Buffer.from([0x3b]));
+  return Buffer.concat(parts);
+}
+
 function normalizeComp(c, theme) {
   const color = /^#[0-9a-fA-F]{6}$/.test(c?.color || '') ? c.color : fallbackComp(theme).color;
   let effect = EFFECTS.includes(c?.effect) ? c.effect : null;
@@ -273,6 +460,7 @@ function normalizeComp(c, theme) {
     title: String(c?.title || '').slice(0, 60) || fallbackComp(theme).title,
     text: String(c?.text || '').slice(0, 120) || fallbackComp(theme).text,
     color, effect,
+    action: String(c?.action || '').slice(0, 120),
   };
 }
 
@@ -289,7 +477,7 @@ function fallbackComp(theme) {
   const ki = kw.findIndex((re) => re.test(t));
   let h = 0; for (const ch of t) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   const p = PALETTES[ki >= 0 ? ki : h % PALETTES.length];
-  return { title: `${theme} AR`, text: `Welcome to the world of ${theme}.`, color: p.color, effect: p.effect };
+  return { title: `${theme} AR`, text: `Welcome to the world of ${theme}.`, color: p.color, effect: p.effect, action: 'hops happily in place with squash and stretch' };
 }
 
 // chat（prompt/completion_tokens）と image（input/output_tokens）で形が違う usage を共通形に寄せる
@@ -348,7 +536,10 @@ var PARAMS = {
   flame:     { n: 260, dir: 'up',    speed: [0.5, 1.1], sway: 0.10, size: 30, ramp: ['#fff3b0', CFG.color, '#e62e00'] },
   ice:       { n: 200, dir: 'down',  speed: [0.12, 0.35], sway: 0.22, size: 17, ramp: ['#ffffff', '#bfefff', '#7fd4ff'] },
   lightning: { n: 170, dir: 'burst', speed: [0.7, 1.6], sway: 0.03, size: 15, ramp: ['#ffffff', '#cfe8ff', '#5aa2ff'] },
-  petal:     { n: 140, dir: 'down',  speed: [0.15, 0.4], sway: 0.55, size: 25, ramp: ['#ffffff', '#ffc2d6', '#ff8fb3'] }
+  petal:     { n: 140, dir: 'down',  speed: [0.15, 0.4], sway: 0.55, size: 25, ramp: ['#ffffff', '#ffc2d6', '#ff8fb3'] },
+  sparkle:   { n: 170, dir: 'burst', speed: [0.12, 0.35], sway: 0.05, size: 13, ramp: ['#ffffff', '#fff3b0', '#ffd94d'] },
+  bubble:    { n: 120, dir: 'up',    speed: [0.15, 0.35], sway: 0.30, size: 34, ramp: ['#ffffff', '#d8f4ff', '#9fdcff'] },
+  confetti:  { n: 190, dir: 'down',  speed: [0.30, 0.60], sway: 0.80, size: 21, ramp: ['#ff8fb3', '#fff3b0', '#9fdcff', '#b6ffc8'] }
 };
 var P = PARAMS[CFG.effect] || PARAMS.petal;
 function easeOutBack(t) { var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
@@ -512,6 +703,16 @@ function initScene() {
         cardGroup.position.y = 0.52 + Math.sin(t * 1.6) * 0.045;
         var shs = 1 - Math.sin(t * 1.6) * 0.06; shadow.scale.set(shs, shs, 1);
       }
+      if (CFG.mo === 'hop' || CFG.mo === 'bounce') { // 跳ね続け、着地で潰れ、影が追従する
+        var jp = Math.abs(Math.sin(t * (CFG.mo === 'hop' ? 2.7 : 3.5)));
+        cardGroup.position.y = 0.52 + jp * (CFG.mo === 'hop' ? 0.17 : 0.11);
+        group.scale.set(1 + (1 - jp) * 0.07, 1 - (1 - jp) * 0.09, 1);
+        var shj = 1 - jp * 0.22; shadow.scale.set(shj, shj, 1);
+      }
+      if (CFG.mo === 'sway') { // ゆらゆら：左右に揺れる
+        tilt.rotation.z = Math.sin(t * 1.9) * 0.085;
+        cardGroup.position.y = 0.52 + Math.sin(t * 2.6) * 0.012;
+      }
     }
     // カードは常にこちらを向く（縦軸だけ）
     var dx = camera.position.x - group.position.x, dz = camera.position.z - group.position.z;
@@ -621,16 +822,17 @@ function buildServer() {
 
   server.registerTool('compose_ar', {
     title: 'ARの中身を組み立てる',
-    description: 'テーマからARの中身（タイトル・表示テキスト・色・エフェクト・素材画像）をサーバー側の Meta モデルで組み立てる。テーマが決まったら呼ぶ。呼ぶ前に、ユーザーの意向がまだ分からなければ、2つだけ短く聞いてから呼ぶこと：①背景は「キャラだけ透過（背景なし）」か「カード型（背景あり）」か。②登場と動きは「バウンス（弾んで登場）」「ふわふわ（浮いて揺れる）」「そのまま（静止）」のどれか。ユーザーが「おまかせ」と言ったら聞かずに既定（透過＋バウンス）で呼ぶ。既に聞いている・決まっている場合は聞き直さない。返ってきた公開URLと要約（どのモデルが何トークン使ったか）をそのままユーザーに伝える。',
+    description: 'テーマからARの中身（タイトル・表示テキスト・色・エフェクト・素材画像）をサーバー側の Meta モデルで組み立てる。テーマが決まったら呼ぶ。呼ぶ前に、ユーザーの意向がまだ分からなければ、3つだけ短く聞いてから呼ぶこと：①背景は「キャラだけ透過（背景なし）」か「カード型（背景あり）」か。②動きは「ぴょんぴょん（跳ね続ける）」「バウンス（弾んで登場）」「ふわふわ（浮いて揺れる）」「ゆらゆら（揺れる）」「そのまま（静止）」のどれか。③エフェクトは「おまかせ」「炎」「氷」「稲妻」「花びら」「きらきら」「泡」「紙吹雪」のどれか。ユーザーが「おまかせ」と言ったら聞かずに既定（透過＋バウンス＋エフェクトおまかせ）で呼ぶ。既に聞いている・決まっている場合は聞き直さない。返ってきた公開URLと要約（どのモデルが何トークン使ったか）をそのままユーザーに伝える。',
     inputSchema: {
       nickname: nickArg,
       theme: z.string().optional().describe('テーマ（一言）。前に start_create で受け取っていれば省略可'),
       background: z.enum(['transparent', 'card']).optional().describe('背景：transparent=キャラだけ透過（既定）、card=カード型'),
-      motion: z.enum(['bounce', 'float', 'still']).optional().describe('登場と動き：bounce=弾んで登場（既定）、float=浮いて揺れる、still=静止'),
+      motion: z.enum(['bounce', 'float', 'hop', 'sway', 'still']).optional().describe('動き：bounce=弾んで登場（既定）、hop=ぴょんぴょん跳ね続ける、float=浮いて揺れる、sway=ゆらゆら揺れる、still=静止'),
+      effect: z.enum(['auto', 'flame', 'ice', 'lightning', 'petal', 'sparkle', 'bubble', 'confetti']).optional().describe('エフェクト：auto=おまかせ（既定）、flame=炎、ice=氷、lightning=稲妻、petal=花びら、sparkle=きらきら、bubble=泡、confetti=紙吹雪'),
       card: cardArg,
     },
     annotations: { title: 'ARの中身を組み立てる', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  }, async ({ nickname, theme, background, motion, card }) => {
+  }, async ({ nickname, theme, background, motion, effect, card }) => {
     const u = getU(nickname, card);
     if (theme) u.theme = String(theme).slice(0, 60);
     if (!u.theme) {
@@ -668,6 +870,8 @@ function buildServer() {
       notes.push('APIキー未設定のためテンプレート構成です');
     }
     if (!comp) comp = fallbackComp(th);
+    if (effect && effect !== 'auto') comp.effect = effect;
+    const action = comp.action || '';
     const effBg = transparentApplied ? 'transparent' : 'card';
 
     // usage は Tooling の証拠として、カードとARトークン（→制作証明）の両方に保持する
@@ -675,18 +879,18 @@ function buildServer() {
     u.usage = usage;
 
     const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-    const arTok = packTok({ i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: effBg, mo: moChoice });
+    const arTok = packTok({ i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: effBg, mo: moChoice, ac: action || undefined });
     u.arTok = arTok; u.arId = arId; u.certTok = null; // 新しいARを作ったら証明は作り直し
     const url = `${BASE}/ar/${arTok}`;
     const summary = usedModel
       ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}）`
       : 'テンプレート構成で組み立てました（モデル未使用）';
-    const styleLine = `背景：${transparentApplied ? '透過（キャラだけ浮き出る）' : 'カード型'}／動き：${{ bounce: 'バウンスで登場', float: 'ふわふわ浮く', still: 'そのまま静止' }[moChoice]}`;
+    const styleLine = `背景：${transparentApplied ? '透過（キャラだけ浮き出る）' : 'カード型'}／動き：${{ bounce: 'バウンスで登場', hop: 'ぴょんぴょん跳ね続ける', float: 'ふわふわ浮く', sway: 'ゆらゆら揺れる', still: 'そのまま静止' }[moChoice]}${action ? `／動きの演出：${action}` : ''}`;
     const text = `できたよ！「${comp.title}」\n${comp.text}\nエフェクト：${comp.effect}／基調色：${comp.color}\n${styleLine}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n公開URL（スマホで開いてね）：\n${url}\n\nこのまま publish_ar で公開リンクを出すね。`;
     console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, bg: effBg, mo: moChoice, transparentApplied }));
     return {
       content: [{ type: 'text', text }],
-      structuredContent: { url, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, background: effBg, motion: moChoice, transparentApplied, card: packCard(u) },
+      structuredContent: { url, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, background: effBg, motion: moChoice, transparentApplied, action, card: packCard(u) },
     };
   });
 
@@ -703,11 +907,21 @@ function buildServer() {
     // 実プロジェクトを作成して、その /slam-ar/ URL を公開リンクにする。
     // 失敗したら従来の自前ビューアにフォールバックする（公開が止まらない）。
     let hackars = null;
+    let animatedGif = false;
     if (HACKARS_API_KEY && !u.hackarsUrl) {
       try {
         const p = readTok(u.arTok) || {};
         const img = p.im ? imgs.get(p.im) : null;
         if (img?.buf) {
+          const moP = p.mo || 'bounce';
+          let pubBuf = img.buf, pubType = img.type === 'image/png' ? 'image/png' : 'image/webp';
+          if (moP !== 'still' && img.type === 'image/png') {
+            try {
+              const gif = makeAnimGif(img.buf, moP);
+              if (gif && gif.length < 3.9 * 1024 * 1024) { pubBuf = gif; pubType = 'image/gif'; }
+            } catch (ge) { console.log('[AR] gif-failed', JSON.stringify({ error: String(ge?.message || ge) })); }
+          }
+          animatedGif = pubType === 'image/gif';
           const r = await fetch(HACKARS_API_URL, {
             method: 'POST',
             headers: { 'content-type': 'application/json', 'x-api-key': HACKARS_API_KEY },
@@ -715,10 +929,10 @@ function buildServer() {
               name: p.ti || 'Muse AR',
               effect: p.e || 'petal',
               color: p.c || '#FFC2D6',
-              imageBase64: img.buf.toString('base64'),
-              imageContentType: img.type === 'image/png' ? 'image/png' : 'image/webp',
-              entranceAnim: (p.mo || 'bounce') === 'float' ? 'fadeIn' : (p.mo || 'bounce') === 'still' ? 'none' : 'bounce',
-              billboard: (p.mo || 'bounce') === 'float',
+              imageBase64: pubBuf.toString('base64'),
+              imageContentType: pubType,
+              entranceAnim: moP === 'float' || moP === 'sway' ? 'fadeIn' : moP === 'still' ? 'none' : 'bounce',
+              billboard: moP === 'float',
             }),
           });
           const j = await r.json().catch(() => ({}));
@@ -745,7 +959,7 @@ function buildServer() {
       : `公開したよ！このリンクをスマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}\n\n見終わったら、最後に制作証明を出そう。`;
     return {
       content: [{ type: 'text', text }],
-      structuredContent: { url, qr, hackarsUrl: hackars?.url || null, hackarsProjectId: hackars?.projectId || null, builtinUrl, card: packCard(u) },
+      structuredContent: { url, qr, hackarsUrl: hackars?.url || null, hackarsProjectId: hackars?.projectId || null, builtinUrl, animated: animatedGif, card: packCard(u) },
     };
   });
 
