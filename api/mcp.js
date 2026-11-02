@@ -780,6 +780,7 @@ const VOICE = 'AR Creator は、ユーザーが Muse との会話で AR（カメ
   + '進め方は3つだけ：① start_create で参加の確認とテーマを聞く（テーマはユーザー本人の言葉をそのまま渡す。あなたが勝手にテーマを決めない）'
   + '② テーマが決まったら compose_ar を呼ぶ（AR の中身の構成はサーバー側のモデルが行う）'
   + '③ 返ってきた公開 URL をそのまま見せ、スマホで開くよう案内する。作れたら publish_ar で公開リンクを、最後に issue_certificate で制作証明を出す。'
+  + '案内役としてユーザーを迷わせないこと：テーマに迷っていたら例を3つ提案する。各ステップでは、次にできることを短い選択肢で提示して選んでもらう（考えさせるだけの質問で終わらせない）。公開できたら、制作証明を出すか、動きやエフェクトを変えた別バージョンを作るか、新しいテーマで作るかを提案する。'
   + 'ツールが返した URL・タイトル・トークン数の要約は、中身を変えずに伝える。';
 
 function buildServer() {
@@ -810,7 +811,7 @@ function buildServer() {
     if (theme) u.theme = String(theme).slice(0, 60);
     if (!u.theme) {
       return {
-        content: [{ type: 'text', text: 'ありがとう！じゃあ、どんなARにする？テーマを一言で教えて。たとえば「燃えるドラゴン」「雪の妖精」「推しの誕生日」みたいに、短くてOKだよ。' }],
+        content: [{ type: 'text', text: 'ありがとう！じゃあ、どんなARにする？テーマを一言で教えて。迷ったらこの中から選んでもOK：「焚き火の精霊」「月夜のたぬき」「推しの誕生日ケーキ」。もちろん別のテーマでも大丈夫だよ。' }],
         structuredContent: { needsTheme: true, card: packCard(u) },
       };
     }
@@ -822,7 +823,7 @@ function buildServer() {
 
   server.registerTool('compose_ar', {
     title: 'ARの中身を組み立てる',
-    description: 'テーマからARの中身（タイトル・表示テキスト・色・エフェクト・素材画像）をサーバー側の Meta モデルで組み立てる。テーマが決まったら呼ぶ。呼ぶ前に、ユーザーの意向がまだ分からなければ、3つだけ短く聞いてから呼ぶこと：①背景は「キャラだけ透過（背景なし）」か「カード型（背景あり）」か。②動きは「ぴょんぴょん（跳ね続ける）」「バウンス（弾んで登場）」「ふわふわ（浮いて揺れる）」「ゆらゆら（揺れる）」「そのまま（静止）」のどれか。③エフェクトは「おまかせ」「炎」「氷」「稲妻」「花びら」「きらきら」「泡」「紙吹雪」のどれか。ユーザーが「おまかせ」と言ったら聞かずに既定（透過＋バウンス＋エフェクトおまかせ）で呼ぶ。既に聞いている・決まっている場合は聞き直さない。返ってきた公開URLと要約（どのモデルが何トークン使ったか）をそのままユーザーに伝える。',
+    description: 'テーマからARの中身（タイトル・表示テキスト・色・エフェクト・素材画像）をサーバー側の Meta モデルで組み立てる。テーマが決まったら呼ぶ。呼ぶ前に、ユーザーの意向がまだ分からなければ、3つだけ短く聞いてから呼ぶこと：①背景は「キャラだけ透過（背景なし）」か「カード型（背景あり）」か。②動きは「ぴょんぴょん（跳ね続ける）」「バウンス（弾んで登場）」「ふわふわ（浮いて揺れる）」「ゆらゆら（揺れる）」「そのまま（静止）」のどれか。③エフェクトは「おまかせ」「炎」「氷」「稲妻」「花びら」「きらきら」「泡」「紙吹雪」のどれか。ユーザーが「おまかせ」と言ったら聞かずに既定（透過＋バウンス＋エフェクトおまかせ）で呼ぶ。既に聞いている・決まっている場合は聞き直さない。返ってきた公開URLと要約（どのモデルが何トークン使ったか）をそのままユーザーに伝える。そのうえで、公開するか、動きやエフェクトを変える（remix_ar）かをユーザーに選んでもらうこと。',
     inputSchema: {
       nickname: nickArg,
       theme: z.string().optional().describe('テーマ（一言）。前に start_create で受け取っていれば省略可'),
@@ -886,7 +887,7 @@ function buildServer() {
       ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}）`
       : 'テンプレート構成で組み立てました（モデル未使用）';
     const styleLine = `背景：${transparentApplied ? '透過（キャラだけ浮き出る）' : 'カード型'}／動き：${{ bounce: 'バウンスで登場', hop: 'ぴょんぴょん跳ね続ける', float: 'ふわふわ浮く', sway: 'ゆらゆら揺れる', still: 'そのまま静止' }[moChoice]}${action ? `／動きの演出：${action}` : ''}`;
-    const text = `できたよ！「${comp.title}」\n${comp.text}\nエフェクト：${comp.effect}／基調色：${comp.color}\n${styleLine}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n公開URL（スマホで開いてね）：\n${url}\n\nこのまま publish_ar で公開リンクを出すね。`;
+    const text = `できたよ！「${comp.title}」\n${comp.text}\nエフェクト：${comp.effect}／基調色：${comp.color}\n${styleLine}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n公開URL（スマホで開いてね）：\n${url}\n\nこのまま公開する？ 動きやエフェクトを変えたくなったら、言ってくれたらすぐ作り直すよ。`;
     console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, bg: effBg, mo: moChoice, transparentApplied }));
     return {
       content: [{ type: 'text', text }],
@@ -955,12 +956,36 @@ function buildServer() {
     const qr = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(url)}`;
     console.log('[AR] publish', JSON.stringify({ nickname: u.nickname, arId: u.arId, hackars: !!hackars }));
     const text = hackars
-      ? `公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}\n\n（予備のビューア：${builtinUrl}）\n\n見終わったら、最後に制作証明を出そう。`
-      : `公開したよ！このリンクをスマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}\n\n見終わったら、最後に制作証明を出そう。`;
+      ? `公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}\n\n（予備のビューア：${builtinUrl}）\n\n次はどうする？「制作証明を出す」「動きやエフェクトを変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`
+      : `公開したよ！このリンクをスマホで開くと、そのままARが見られるよ（アプリ不要）。\n${url}\n\nQRコード用リンク：\n${qr}\n\n次はどうする？「制作証明を出す」「動きやエフェクトを変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`;
     return {
       content: [{ type: 'text', text }],
       structuredContent: { url, qr, hackarsUrl: hackars?.url || null, hackarsProjectId: hackars?.projectId || null, builtinUrl, animated: animatedGif, card: packCard(u) },
     };
+  });
+
+  server.registerTool('remix_ar', {
+    title: '動きとエフェクトを変える',
+    description: '作ったARの素材はそのままに、動きとエフェクトだけを変えた別バージョンを作る（画像の再生成はしないので速い）。ユーザーが「動きを変えて」「エフェクトを変えて」と言ったら呼ぶ。呼んだら、続けて publish_ar を呼んで新しい公開リンクを出すこと。',
+    inputSchema: {
+      nickname: nickArg,
+      motion: z.enum(['bounce', 'float', 'hop', 'sway', 'still']).optional().describe('新しい動き（省略時は今のまま）'),
+      effect: z.enum(['flame', 'ice', 'lightning', 'petal', 'sparkle', 'bubble', 'confetti']).optional().describe('新しいエフェクト（省略時は今のまま）'),
+      card: cardArg,
+    },
+    annotations: { title: '動きとエフェクトを変える', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, async ({ nickname, motion, effect, card }) => {
+    const u = getU(nickname, card);
+    if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に compose_ar で組み立ててね。' }], structuredContent: { needsCompose: true, card: packCard(u) } };
+    const p = readTok(u.arTok) || {};
+    const mo = motion || p.mo || 'bounce';
+    const ef = effect || p.e || 'petal';
+    const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
+    const arTok = packTok({ i: arId, ti: p.ti, tx: p.tx, c: p.c, e: ef, th: p.th, im: p.im, us: p.us, bg: p.bg, mo, ac: p.ac });
+    u.arTok = arTok; u.arId = arId; u.hackarsUrl = null; u.hackarsProjectId = null; u.certTok = null;
+    const url = `${BASE}/ar/${arTok}`;
+    const text = `変えたよ！動き：${mo}／エフェクト：${ef}\nビューア（スマホで開いてね）：\n${url}\n\nこのまま publish_ar で新しい公開リンクを出すね。`;
+    return { content: [{ type: 'text', text }], structuredContent: { url, title: p.ti, motion: mo, effect: ef, card: packCard(u) } };
   });
 
   server.registerTool('issue_certificate', {
@@ -977,7 +1002,7 @@ function buildServer() {
     const url = `${BASE}/c/${u.certTok}`;
     console.log('[AR] certificate', JSON.stringify({ nickname: u.nickname, again }));
     return {
-      content: [{ type: 'text', text: (again ? `制作証明はひとり1枚だよ。さっきのと同じものをもう一度出すね。\n${url}` : `おつかれさま！「${p.ti || 'My AR'}」の制作証明だよ。\n${url}`) }],
+      content: [{ type: 'text', text: (again ? `制作証明はひとり1枚だよ。さっきのと同じものをもう一度出すね。\n${url}` : `おつかれさま！「${p.ti || 'My AR'}」の制作証明だよ。\n${url}\n\nよかったら、動きやエフェクトを変えた別バージョンや、新しいテーマでも作ってみてね。`) }],
       structuredContent: { url, again, card: packCard(u) },
     };
   });
