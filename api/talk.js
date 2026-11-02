@@ -62,9 +62,12 @@ async function handle(request) {
   const origin = request.headers.get('origin');
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(origin) });
   if (request.method !== 'POST') return json({ error: 'POST only' }, 405, origin);
+  if (origin && !ALLOWED.test(origin)) return json({ error: 'origin not allowed' }, 403, origin);
   if (!MODEL_API_KEY) return json({ error: 'model api key is not configured' }, 503, origin);
   let body;
   try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400, origin); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'body must be a JSON object' }, 400, origin);
+  if (typeof body.text !== 'string' && typeof body.audio !== 'string') return json({ error: 'text or audio is required' }, 400, origin);
   const t0 = Date.now();
   try {
     let heard = typeof body.text === 'string' ? body.text.slice(0, 300) : '';
