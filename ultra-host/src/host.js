@@ -145,8 +145,15 @@ function startUnsafe(opts) {
   arena.updateSun();
 
   // AR camera -> Ultra camera: Ultra pos = dummy + R(-yaw) * (ar - anchor) / k, same view rotation
-  let k = 1;
+  let k = 1, lastAnchor = null;
+  // an AR world point -> Ultra arena point (same mapping as the camera)
+  function toArena(p) {
+    if (!lastAnchor) return null;
+    _yaw.setFromAxisAngle(_up, -(lastAnchor.yaw ?? 0));
+    return new THREE.Vector3().fromArray(p).sub(new THREE.Vector3().fromArray(lastAnchor.position)).applyQuaternion(_yaw).multiplyScalar(1 / k).add(DUMMY);
+  }
   function syncCamera(anchor) {
+    lastAnchor = anchor;
     const ar = getCamera();
     if (!ar) return false;
     ar.updateMatrixWorld?.();
@@ -167,9 +174,12 @@ function startUnsafe(opts) {
     return true;
   }
 
-  function castNow() {
+  // opts.from: AR world point the spell starts from (e.g. the user's open palm); default the arena focus
+  function castNow(opts = {}) {
     _hit.copy(DUMMY).setY(1.1);
-    casts.cast(spell, _hit.clone(), { form, target: 0 });
+    const from = opts.from ? toArena(opts.from) : null;
+    casts.cast(spell, _hit.clone(), from ? { form, target: 0, from } : { form, target: 0 });
+    timer = Math.max(timer, 1.5);   // a cast on demand pushes the next timed one back
   }
 
   let warm = false, running = true, last = performance.now(), simTime = 0, timer = 0.6;
