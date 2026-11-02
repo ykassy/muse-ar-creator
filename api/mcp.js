@@ -1170,12 +1170,14 @@ const VOICE = 'AR Creator は、ユーザーが Muse との会話で AR（カメ
 
 // ---- 表情バリエーション: 元の絵のマスクで切り抜いた顔違いを asset-store に置く ----
 // images/edits が使えない環境では neutral（元の絵）だけになる（公開は止めない）。
+let lastEditStatus = 'not tried';
 async function callImageEdit(pngB64, prompt) {
-  const bodies = [
+  const jsonBodies = [
     { model: IMAGE_MODEL, prompt, image: pngB64, output_format: 'png' },
     { model: IMAGE_MODEL, prompt, images: [pngB64], output_format: 'png' },
+    { model: IMAGE_MODEL, prompt, image: { b64_json: pngB64 }, output_format: 'png' },
   ];
-  for (const body of bodies) {
+  for (const body of jsonBodies) {
     try {
       const res = await fetch(`${API_BASE}/images/edits`, {
         method: 'POST',
@@ -1183,12 +1185,35 @@ async function callImageEdit(pngB64, prompt) {
         signal: AbortSignal.timeout(60_000),
         body: JSON.stringify(body),
       });
+      lastEditStatus = 'http ' + res.status;
       if (!res.ok) continue;
       const data = await res.json();
       const b64 = data?.data?.[0]?.b64_json;
       if (b64) return b64;
-    } catch { /* try the next shape */ }
+      lastEditStatus = 'http 200 but no b64_json';
+    } catch (e) { lastEditStatus = String(e?.message || e).slice(0, 80); }
   }
+  // OpenAI-style multipart form, the other shape edits endpoints usually take.
+  try {
+    const form = new FormData();
+    form.append('model', IMAGE_MODEL);
+    form.append('prompt', prompt);
+    form.append('output_format', 'png');
+    form.append('image', new Blob([Buffer.from(pngB64, 'base64')], { type: 'image/png' }), 'image.png');
+    const res = await fetch(`${API_BASE}/images/edits`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${MODEL_API_KEY}` },
+      signal: AbortSignal.timeout(60_000),
+      body: form,
+    });
+    lastEditStatus = 'multipart http ' + res.status;
+    if (res.ok) {
+      const data = await res.json();
+      const b64 = data?.data?.[0]?.b64_json;
+      if (b64) return b64;
+      lastEditStatus = 'multipart http 200 but no b64_json';
+    }
+  } catch (e) { lastEditStatus = 'multipart ' + String(e?.message || e).slice(0, 80); }
   return null;
 }
 const FACE_PROMPTS = {
@@ -1225,7 +1250,7 @@ async function makeFaces(rawPngBuf, keyedBuf, keyCh) {
     });
     await Promise.all(jobs);
   } catch { /* expressions are optional */ }
-  console.log('[AR] faces', JSON.stringify({ made: Object.keys(faces) }));
+  console.log('[AR] faces', JSON.stringify({ made: Object.keys(faces), lastEditStatus }));
   return faces;
 }
 
