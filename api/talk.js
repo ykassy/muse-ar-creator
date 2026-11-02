@@ -7,7 +7,9 @@ const MODEL_API_KEY = process.env.MODEL_API_KEY || '';
 const ASR_MODEL = 'muse-voice-transcribe-1.0';
 const SPARK_MODEL = 'muse-spark-1.3';
 const EMOTIONS = ['happy', 'surprised', 'sad', 'angry', 'neutral'];
-const MAX_AUDIO = 2 * 1024 * 1024;   // ~60 s of 16 kHz mono WAV, far more than a poke needs
+const MAX_AUDIO = 2 * 1024 * 1024;   // ~60 s of 16 kHz mono WAV, far more than one turn needs
+const EFFORTS = ['none', 'minimal', 'low', undefined];   // tried in order until one is accepted
+let effortAt = 0;
 
 const ALLOWED = /^https:\/\/(hackar-s\.com|[a-z0-9-]+\.hackar-s\.com|hackar-[a-z0-9]+-kassyhackitcojps-projects\.vercel\.app)$/;
 const cors = (origin) => ({
@@ -43,22 +45,25 @@ async function reply({ heard, name, persona, lang, history }) {
     if (h && (h.role === 'user' || h.role === 'assistant') && typeof h.content === 'string') messages.push({ role: h.role, content: h.content.slice(0, 300) });
   }
   messages.push({ role: 'user', content: heard || (lang === 'en' ? '(looks at you without saying anything)' : '（何も言わずにこっちを見ている）') });
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // a reasoning model: think as little as the API allows (a one-line reply needs no plan).
+  // The lowest effort the API accepts is remembered for the next calls on this instance.
+  for (let i = effortAt; i < EFFORTS.length; i++) {
+    const effort = EFFORTS[i];
     const res = await fetch(`${API_BASE}/chat/completions`, {
       method: 'POST',
       headers: { authorization: `Bearer ${MODEL_API_KEY}`, 'content-type': 'application/json' },
-      // a reasoning model: keep the thinking short so a one-line answer isn't cut off
-      body: JSON.stringify({ model: SPARK_MODEL, temperature: 0.9, max_tokens: 3000, reasoning_effort: attempt === 0 ? 'low' : undefined, messages }),
+      body: JSON.stringify({ model: SPARK_MODEL, temperature: 0.9, max_tokens: 1500, reasoning_effort: effort, messages }),
       signal: AbortSignal.timeout(20_000),
     });
-    if (res.status === 400 && attempt === 0) continue;   // reasoning_effort not accepted: retry without it
+    if (res.status === 400 && i < EFFORTS.length - 1) continue;   // this effort isn't accepted: try the next one
     if (!res.ok) throw new Error(`spark http ${res.status}`);
+    effortAt = i;
     const data = await res.json();
     const raw = String(data?.choices?.[0]?.message?.content || '').replace(/```(?:json)?/gi, '').trim();
     let text = raw, emotion = 'neutral';
     const m = /\{[\s\S]*\}/.exec(raw);
     if (m) { try { const j = JSON.parse(m[0]); text = String(j.reply || '').trim(); if (EMOTIONS.includes(j.emotion)) emotion = j.emotion; } catch { /* plain text reply */ } }
-    if (text) return { text: text.slice(0, 240), emotion, usage: data?.usage || null };
+    if (text) return { text: text.slice(0, 240), emotion, usage: data?.usage || null, effort: effort ?? 'default' };
   }
   throw new Error('spark returned empty content');
 }
@@ -85,8 +90,8 @@ async function handle(request) {
       asrMs = Date.now() - ta;
     }
     const r = await reply({ heard, name: String(body.name || '').slice(0, 60), persona: String(body.persona || '').slice(0, 400), lang: body.lang === 'en' ? 'en' : 'ja', history: body.history });
-    console.log('[TALK]', JSON.stringify({ at: new Date().toISOString(), asr: ASR_MODEL, asrMs, heardLen: heard.length, spark: SPARK_MODEL, usage: r.usage, ms: Date.now() - t0 }));
-    return json({ heard, reply: r.text, emotion: r.emotion, models: { asr: body.audio ? ASR_MODEL : null, spark: SPARK_MODEL }, usage: r.usage }, 200, origin);
+    console.log('[TALK]', JSON.stringify({ at: new Date().toISOString(), asr: ASR_MODEL, asrMs, heardLen: heard.length, spark: SPARK_MODEL, effort: r.effort, usage: r.usage, ms: Date.now() - t0 }));
+    return json({ heard, reply: r.text, emotion: r.emotion, models: { asr: body.audio ? ASR_MODEL : null, spark: SPARK_MODEL, effort: r.effort }, usage: r.usage }, 200, origin);
   } catch (e) {
     console.log('[TALK] error', JSON.stringify({ error: String(e?.message || e), ms: Date.now() - t0 }));
     return json({ error: 'talk failed', detail: String(e?.message || e).slice(0, 200) }, 502, origin);
