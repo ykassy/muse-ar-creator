@@ -1,0 +1,1 @@
+{"functions":{"api/mcp.js":{"maxDuration":60}},"headers":[{"headers":[{"key":"X-Robots-Tag","value":"noindex, nofollow"}],"source":"/(.*)"}],"rewrites":[{"destination":"/api/mcp","source":"/mcp"},{"destination":"/api/mcp?ar=:token","source":"/ar/:token"},{"destination":"/api/mcp?cert=:token","source":"/c/:token"},{"destination":"/api/mcp?img=:id","source":"/img/:id"}]}
