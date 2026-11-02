@@ -609,7 +609,7 @@ function initScene() {
       tex.colorSpace = THREE.SRGBColorSpace;
       cardMat.map = tex; cardMat.color.set(0xffffff); cardMat.needsUpdate = true;
       if (tex.image && tex.image.height && tex.image.width) { var a = tex.image.height / tex.image.width; card.scale.y = a; frame.scale.y = a; }
-      if (CFG.bg === 'transparent') buildPlate(tex);
+      // 半立体プレート（buildPlate）は実機未検証のため無効化中。検証できたら有効化する。
     }, undefined, function () { /* 画像が落ちていたら色カードのまま成立させる */ });
   }
   // ---- 板レシピ方式：透過シルエットから半立体プレート（かき割り状）を生成し、頂点シェーダのスカッシュ＆ストレッチで跳ねさせる ----
