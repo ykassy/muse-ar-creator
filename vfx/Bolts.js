@@ -19,7 +19,7 @@ out vec4 fragColor;
 `;
 const AR_FX_SHIM = /* glsl */`
 float softFade(float viewZ, float dist) { return 1.0; }
-void fxOut(vec3 col, float a, vec3 emit, vec2 dist, float viewZ) { fragColor = vec4(emit, 1.0); }
+void fxOut(vec3 col, float a, vec3 emit, vec2 dist, float viewZ) { fragColor = vec4(emit, clamp(max(emit.r, max(emit.g, emit.b)), 0.0, 1.0)); } // AR PORT FIX: alpha must track emission; constant 1.0 made faint falloff pixels opaque black over the camera feed
 `;
 // ============================================================================
 
@@ -370,7 +370,7 @@ export class Bolts {
       vertexShader: head, fragmentShader: CORE_FRAG,
     }));
     this.glows = new THREE.Mesh(geo, new THREE.RawShaderMaterial({
-      glslVersion: THREE.GLSL3, uniforms: this.uniforms, transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcColorFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcColorFactor /* SCREEN blend (AR port): additive over a transparent canvas wrote dark fringes once composited over the camera feed */, side: THREE.DoubleSide, defines: { BOLT_GLOW: 1 }, // SPIKE PATCH: was ...FX_BLENDING (FX-pass MRT)
+      glslVersion: THREE.GLSL3, uniforms: this.uniforms, transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneFactor /* premultiplied additive (AR port): fxOut writes alpha = emission peak, so the canvas composites as light over the camera feed and never as opaque black */, side: THREE.DoubleSide, defines: { BOLT_GLOW: 1 }, // SPIKE PATCH: was ...FX_BLENDING (FX-pass MRT)
       vertexShader: FX_VERT_HEAD + head,
       fragmentShader: AR_FRAG_HEAD + COMMON_GLSL + AR_FX_SHIM + GLOW_FRAG, // SPIKE PATCH: was FX_FRAG_HEAD + COMMON_GLSL + FX_OUT_GLSL + GLOW_FRAG
     }));

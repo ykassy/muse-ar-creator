@@ -901,8 +901,8 @@ document.getElementById('go').addEventListener('click', function () {
 <script type="module">
 import * as THREE from 'three';
 import { U } from '/vfx/common.js';
-import { Bolts } from '/vfx/Bolts.js';
-import { Shockwaves } from '/vfx/Shockwaves.js';
+import { Bolts } from '/vfx/Bolts.js?v=2';
+import { Shockwaves } from '/vfx/Shockwaves.js?v=2';
 // Ultra Elements (MIT, (c) Humpalumps) — Bolts + Shockwaves, AR-adapted single-pass rendering. License: /vfx/LICENSE-ultra-elements.txt
 var CFG = ${jsJson(cfg)};
 function easeOutBack(t) { var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
@@ -1377,7 +1377,7 @@ async function handle(request) {
   const imgId = url.searchParams.get('img');
   const staticPath = url.searchParams.get('static');
   if (request.method === 'GET' && staticPath && VFX_SOURCES[staticPath]) {
-    return new Response(Buffer.from(VFX_SOURCES[staticPath], 'base64'), { status: 200, headers: { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+    return new Response(Buffer.from(VFX_SOURCES[staticPath], 'base64'), { status: 200, headers: { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=120' } });
   }
   if (request.method === 'GET' && arTok) return ((readTok(arTok) || {}).e === 'ultra' ? arPageUltra(arTok) : arPage(arTok));
   if (request.method === 'GET' && certTok) return certPage(certTok);
