@@ -27,7 +27,7 @@ async function transcribe(wav) {
     body: form,
     signal: AbortSignal.timeout(15_000),
   });
-  if (!res.ok) throw new Error(`asr http ${res.status}`);
+  if (!res.ok) throw new Error(`asr http ${res.status} ${(await res.text()).slice(0, 160)}`);
   // text/plain: one turn per line, "unknown:" / "A:" speaker prefixes in some modes
   return (await res.text()).split('\n').map((l) => l.replace(/^[A-Za-z]+:/, '').trim()).filter(Boolean).join(' ');
 }
@@ -45,9 +45,11 @@ async function reply({ heard, name, persona, lang, history }) {
     const res = await fetch(`${API_BASE}/chat/completions`, {
       method: 'POST',
       headers: { authorization: `Bearer ${MODEL_API_KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: SPARK_MODEL, temperature: 0.9, max_tokens: 1200, messages }),
+      // a reasoning model: keep the thinking short so a one-line answer isn't cut off
+      body: JSON.stringify({ model: SPARK_MODEL, temperature: 0.9, max_tokens: 3000, reasoning_effort: attempt === 0 ? 'low' : undefined, messages }),
       signal: AbortSignal.timeout(20_000),
     });
+    if (res.status === 400 && attempt === 0) continue;   // reasoning_effort not accepted: retry without it
     if (!res.ok) throw new Error(`spark http ${res.status}`);
     const data = await res.json();
     const text = String(data?.choices?.[0]?.message?.content || '').replace(/```/g, '').trim();
@@ -79,7 +81,7 @@ async function handle(request) {
     return json({ heard, reply: r.text, models: { asr: body.audio ? ASR_MODEL : null, spark: SPARK_MODEL }, usage: r.usage }, 200, origin);
   } catch (e) {
     console.log('[TALK] error', JSON.stringify({ error: String(e?.message || e), ms: Date.now() - t0 }));
-    return json({ error: 'talk failed' }, 502, origin);
+    return json({ error: 'talk failed', detail: String(e?.message || e).slice(0, 200) }, 502, origin);
   }
 }
 
