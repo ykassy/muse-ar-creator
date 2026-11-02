@@ -747,6 +747,245 @@ function initScene() {
 }
 
 // 生成画像の配信。メモリに無ければ 404（ARページ側は onerror で画像カードを消して成立させる）。
+function arPageUltra(tok) {
+  const p = readTok(tok);
+  if (!p) return new Response(pageShell('リンクが無効です', '<p>この AR のリンクは確認できませんでした。Muse で作り直してね。</p>'), { status: 404, headers: htmlHeaders() });
+  const cfg = { title: p.ti, text: p.tx, color: p.c, effect: p.e, theme: p.th, image: p.im ? `/img/${p.im}` : null, bg: p.bg || 'card', mo: p.mo || 'bounce' };
+  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${esc(p.ti)} — AR Creator</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#0b0b10;font-family:-apple-system,'Hiragino Sans',sans-serif;color:#fff}
+#cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:linear-gradient(160deg,${esc(p.c)},#14141d 75%)}
+#fx{position:fixed;inset:0;touch-action:none}
+.hud{position:fixed;left:0;right:0;text-align:center;pointer-events:none;padding:0 18px;box-sizing:border-box}
+#ttl{top:calc(18px + env(safe-area-inset-top));font-size:30px;font-weight:900;letter-spacing:.02em;text-shadow:0 2px 18px rgba(0,0,0,.55)}
+#sub{top:calc(64px + env(safe-area-inset-top));font-size:14px;opacity:.92;text-shadow:0 1px 10px rgba(0,0,0,.6)}
+#theme{bottom:calc(20px + env(safe-area-inset-bottom));font-size:13px;opacity:.85;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+#hint{position:fixed;left:50%;bottom:calc(52px + env(safe-area-inset-bottom));transform:translateX(-50%);font-size:13px;font-weight:700;background:rgba(0,0,0,.5);padding:8px 16px;border-radius:999px;white-space:nowrap;display:none}
+#note{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);font-size:12px;background:rgba(0,0,0,.45);padding:6px 12px;border-radius:999px;display:none;white-space:nowrap}
+#start{position:fixed;inset:0;display:grid;place-items:center;background:rgba(8,8,14,.55);backdrop-filter:blur(3px);z-index:5}
+#start button{border:0;border-radius:999px;padding:16px 34px;font-size:17px;font-weight:800;background:${esc(p.c)};color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+#fallback{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(62vw,260px);border-radius:20px;overflow:hidden;display:none;box-shadow:0 14px 44px rgba(0,0,0,.5)}
+#fallback img{display:block;width:100%;height:auto}
+</style>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.186.1/build/three.module.js","three/addons/":"https://unpkg.com/three@0.186.1/examples/jsm/"}}
+</script>
+</head><body>
+<video id="cam" autoplay playsinline muted></video>
+<canvas id="fx"></canvas>
+<div class="hud" id="ttl">${esc(p.ti)}</div>
+<div class="hud" id="sub">${esc(p.tx)}</div>
+<div class="hud" id="theme">theme: ${esc(p.th)} ・ Talk to Muse, unlock AR</div>
+<div id="hint">真ん中の輪を床に合わせて、タップで置く</div>
+<div id="note"></div>
+${cfg.image ? `<div id="fallback"><img src="${esc(cfg.image)}" alt=""></div>` : ''}
+<div id="start"><button id="go">カメラで見る</button></div>
+<script>
+window.__ultraReady = false;
+document.getElementById('go').addEventListener('click', function () {
+  setTimeout(function () {
+    if (window.__ultraReady) return;
+    var s = document.getElementById('start'); if (s) s.style.display = 'none';
+    var f = document.getElementById('fallback'); if (f) f.style.display = 'block';
+    var n = document.getElementById('note'); if (n) { n.style.display = 'block'; n.textContent = '演出を読み込めなかったので、画像で表示しています'; }
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }).then(function (st) { document.getElementById('cam').srcObject = st; }).catch(function () {});
+    }
+  }, 9000);
+});
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { U } from '/vfx/common.js';
+import { Bolts } from '/vfx/Bolts.js';
+import { Shockwaves } from '/vfx/Shockwaves.js';
+// Ultra Elements (MIT, (c) Humpalumps) — Bolts + Shockwaves, AR-adapted single-pass rendering. License: /vfx/LICENSE-ultra-elements.txt
+var CFG = ${jsJson(cfg)};
+function easeOutBack(t) { var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
+function easeInOutSine(t) { return -(Math.cos(Math.PI * t) - 1) / 2; }
+function showNote(msg) { var n = document.getElementById('note'); n.style.display = 'block'; n.textContent = msg; }
+function showFallback() { var f = document.getElementById('fallback'); if (f) f.style.display = 'block'; showNote('演出を読み込めなかったので、画像で表示しています'); }
+var started = false;
+document.getElementById('go').addEventListener('click', function () {
+  document.getElementById('start').style.display = 'none';
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+      .then(function (s) { document.getElementById('cam').srcObject = s; })
+      .catch(function () { showNote('カメラが使えないので背景モードで表示しています'); });
+  }
+  var begin = function () { if (!started) { started = true; try { initScene(); } catch (e) { showFallback(); } } };
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then(begin).catch(begin);
+  } else { begin(); }
+});
+function initScene() {
+  var hint = document.getElementById('hint'); hint.style.display = 'block';
+  var canvas = document.getElementById('fx');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
+  if (!renderer.capabilities.isWebGL2) { showFallback(); return; }
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.05, 60);
+  camera.position.set(0, 1.35, 0);
+  function syncU() { var s = renderer.getDrawingBufferSize(new THREE.Vector2()); U.uResolution.value.copy(s); U.uFxResolution.value.set(s.x * 0.5, s.y * 0.5); }
+  function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); syncU(); }
+  resize(); addEventListener('resize', resize);
+  var orient = { has: false, q: new THREE.Quaternion() };
+  var zee = new THREE.Vector3(0, 0, 1), eu = new THREE.Euler(), q0 = new THREE.Quaternion(), q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+  addEventListener('deviceorientation', function (e) {
+    if (e.alpha === null || e.alpha === undefined) return;
+    orient.has = true;
+    var alpha = THREE.MathUtils.degToRad(e.alpha), beta = THREE.MathUtils.degToRad(e.beta || 0), gamma = THREE.MathUtils.degToRad(e.gamma || 0);
+    var so = THREE.MathUtils.degToRad((screen.orientation && screen.orientation.angle) || window.orientation || 0);
+    eu.set(beta, alpha, -gamma, 'YXZ');
+    orient.q.setFromEuler(eu); orient.q.multiply(q1); orient.q.multiply(q0.setFromAxisAngle(zee, -so));
+  });
+  var dragYaw = 0, dragPitch = -0.25, dragging = false, lastX = 0, lastY = 0, moved = 0;
+  canvas.addEventListener('touchstart', function (e) { dragging = true; moved = 0; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; }, { passive: true });
+  canvas.addEventListener('touchmove', function (e) {
+    if (!dragging) return;
+    var dx = e.touches[0].clientX - lastX, dy = e.touches[0].clientY - lastY; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+    moved += Math.abs(dx) + Math.abs(dy);
+    if (!orient.has) { dragYaw -= dx * 0.005; dragPitch -= dy * 0.005; dragPitch = Math.max(-1.2, Math.min(0.6, dragPitch)); }
+  }, { passive: true });
+  canvas.addEventListener('touchend', function (e) { dragging = false; if (moved < 12) placeAtCenter(); });
+  canvas.addEventListener('click', function () { placeAtCenter(); });
+  var group = new THREE.Group(); scene.add(group);
+  var tilt = new THREE.Group(); tilt.rotation.x = -0.10; group.add(tilt);
+  var cardGroup = new THREE.Group(); cardGroup.position.y = 0.52; tilt.add(cardGroup);
+  var frame = new THREE.Mesh(new THREE.PlaneGeometry(0.98, 0.98), new THREE.MeshBasicMaterial({ color: new THREE.Color(CFG.color) }));
+  frame.position.z = -0.012; cardGroup.add(frame);
+  if (CFG.bg === 'transparent') frame.visible = false;
+  var cardMat = new THREE.MeshBasicMaterial({ color: 0x22222c, transparent: true });
+  var card = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), cardMat); cardGroup.add(card);
+  if (CFG.image) {
+    new THREE.TextureLoader().load(CFG.image, function (tex) {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      cardMat.map = tex; cardMat.color.set(0xffffff); cardMat.needsUpdate = true;
+      if (tex.image && tex.image.height && tex.image.width) { var a = tex.image.height / tex.image.width; card.scale.y = a; frame.scale.y = a; }
+    }, undefined, function () {});
+  }
+  var sc = document.createElement('canvas'); sc.width = sc.height = 128;
+  var sg = sc.getContext('2d'), grad = sg.createRadialGradient(64, 64, 4, 64, 64, 62);
+  grad.addColorStop(0, 'rgba(0,0,0,0.42)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+  sg.fillStyle = grad; sg.fillRect(0, 0, 128, 128);
+  var shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sc), transparent: true, depthWrite: false }));
+  shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.012; group.add(shadow);
+  var bolts = new Bolts({ max: 8 }); scene.add(bolts.cores); scene.add(bolts.glows);
+  var shocks = new Shockwaves({ max: 16 }); scene.add(shocks.mesh);
+  var shockColor = new THREE.Color(CFG.color);
+  function spawnShock(x, z) {
+    shocks.spawn({ pos: new THREE.Vector3(x, 0.02, z), ground: true, radius0: 0.15, radius1: 2.3, duration: 0.8, thickness: 0.5, color: shockColor, intensity: 3, distortion: 0 });
+  }
+  var ret = new THREE.Group();
+  var ring = new THREE.Mesh(new THREE.RingGeometry(0.085, 0.105, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2; ret.add(ring);
+  var dot = new THREE.Mesh(new THREE.CircleGeometry(0.016, 20), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }));
+  dot.rotation.x = -Math.PI / 2; ret.add(dot);
+  ret.position.y = 0.015; scene.add(ret);
+  var ray = new THREE.Raycaster(), center = new THREE.Vector2(0, 0), hitP = new THREE.Vector3();
+  function groundHit() {
+    ray.setFromCamera(center, camera);
+    var o = ray.ray.origin, d = ray.ray.direction;
+    if (d.y > -0.06) return null;
+    var t = -o.y / d.y; if (t < 0.5 || t > 5) return null;
+    hitP.copy(o).addScaledVector(d, t);
+    var dist = Math.sqrt(hitP.x * hitP.x + hitP.z * hitP.z);
+    if (dist > 3.2) { hitP.x *= 3.2 / dist; hitP.z *= 3.2 / dist; }
+    if (dist < 0.55) { var d2 = Math.max(dist, 0.001); hitP.x *= 0.55 / d2; hitP.z *= 0.55 / d2; }
+    return hitP;
+  }
+  var placed = false, popT = 1;
+  var startPop = function () { popT = CFG.mo === 'still' ? 1 : 0; };
+  function placeAtCenter() {
+    var h = groundHit(); if (!h) { showNote('床のほうを向けてタップしてね'); return; }
+    group.position.set(h.x, 0, h.z);
+    placed = true; startPop();
+    spawnShock(h.x, h.z);
+    startStrike(clock.elapsedTime, h.x, h.z);
+    hint.textContent = '置いた！ タップで置き直せる ・ 近づいたり回り込んでみて';
+  }
+  group.position.set(0, 0, -1.4); placed = true; startPop();
+  var strike = null;
+  function startStrike(now, gx, gz) {
+    if (strike) return;
+    var h = bolts.acquire({ a: new THREE.Vector3(gx + (Math.random() - 0.5) * 0.5, 3.3, gz), b: new THREE.Vector3(gx, 0.02, gz), jag: 0.085, branches: 8, width: 0.03 });
+    if (!h) return;
+    h.color.set('#d6e6ff'); h.glowColor.setRGB(0.05, 0.075, 0.2); h.branchLevel = 0.35;
+    h.reveal = 0; h.stroke = 0; h.dart = -1; h.residual = 0; h.intensity = 5;
+    strike = { h: h, t0: now, gx: gx, gz: gz, hit: false, darts: [0.46, 0.72] };
+  }
+  function stepStrike(now) {
+    if (!strike) return;
+    var h = strike.h, age = now - strike.t0;
+    if (age < 0.26) { h.reveal = age / 0.26; h.intensity = 5; }
+    else if (age < 0.34) {
+      if (!strike.hit) { strike.hit = true; spawnShock(strike.gx, strike.gz); }
+      h.reveal = 1;
+      h.stroke = Math.min(1, (age - 0.26) / 0.05);
+      h.branchLevel = 1;
+      h.intensity = 26;
+    } else {
+      h.stroke = 1;
+      h.intensity = 26 * Math.exp(-(age - 0.34) * 5.5) + 1.2;
+      h.dart = -1;
+      for (var di = 0; di < strike.darts.length; di++) {
+        var dd = (age - strike.darts[di]) / 0.06;
+        if (dd >= 0 && dd <= 1) { h.dart = dd; h.intensity = Math.max(h.intensity, 15); }
+      }
+      h.residual = Math.max(0, Math.min(1, (age - 0.55) / 0.8));
+    }
+    if (age > 1.6) { h.release(); strike = null; }
+  }
+  var nextAuto = 1.0;
+  var clock = new THREE.Clock();
+  (function loop() {
+    requestAnimationFrame(loop);
+    var dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+    if (orient.has) { camera.quaternion.slerp(orient.q, 0.5); }
+    else { camera.quaternion.setFromEuler(new THREE.Euler(dragPitch, dragYaw, 0, 'YXZ')); }
+    var h = groundHit();
+    if (h) { ret.visible = true; ret.position.x = h.x; ret.position.z = h.z; var pulse = 1 + Math.sin(t * 3.2) * 0.07; ret.scale.set(pulse, 1, pulse); }
+    else ret.visible = false;
+    if (popT < 1) { popT = Math.min(1, popT + dt / (CFG.mo === 'float' ? 0.85 : 0.55)); var s = Math.max(0.001, CFG.mo === 'float' ? easeInOutSine(popT) : easeOutBack(popT)); group.scale.set(s, s, s); }
+    else {
+      var sway = Math.sin(t * 0.9) * 0.02;
+      group.scale.set(1, 1 + sway * 0.4, 1);
+      tilt.rotation.z = Math.sin(t * 0.7) * 0.012;
+      if (CFG.mo === 'float') {
+        cardGroup.position.y = 0.52 + Math.sin(t * 1.6) * 0.045;
+        var shs = 1 - Math.sin(t * 1.6) * 0.06; shadow.scale.set(shs, shs, 1);
+      }
+      if (CFG.mo === 'hop' || CFG.mo === 'bounce') {
+        var jp = Math.abs(Math.sin(t * (CFG.mo === 'hop' ? 2.7 : 3.5)));
+        cardGroup.position.y = 0.52 + jp * (CFG.mo === 'hop' ? 0.17 : 0.11);
+        group.scale.set(1 + (1 - jp) * 0.07, 1 - (1 - jp) * 0.09, 1);
+        var shj = 1 - jp * 0.22; shadow.scale.set(shj, shj, 1);
+      }
+      if (CFG.mo === 'sway') {
+        tilt.rotation.z = Math.sin(t * 1.9) * 0.085;
+        cardGroup.position.y = 0.52 + Math.sin(t * 2.6) * 0.012;
+      }
+    }
+    var dx = camera.position.x - group.position.x, dz = camera.position.z - group.position.z;
+    var targetYaw = Math.atan2(dx, dz);
+    var cur = tilt.rotation.y, diff = targetYaw - cur;
+    while (diff > Math.PI) diff -= Math.PI * 2; while (diff < -Math.PI) diff += Math.PI * 2;
+    tilt.rotation.y = cur + diff * Math.min(1, dt * 8);
+    U.uTime.value = t % 3600;
+    if (!strike && t > nextAuto) { startStrike(t, group.position.x + (Math.random() - 0.5) * 0.4, group.position.z + (Math.random() - 0.5) * 0.4); nextAuto = t + 2.6 + Math.random() * 1.2; }
+    stepStrike(t);
+    bolts.update();
+    shocks.update(dt);
+    renderer.render(scene, camera);
+    window.__ultraReady = true;
+  })();
+}
+</script>
+</body></html>`;
+  return new Response(html, { status: 200, headers: htmlHeaders() });
+}
+
 function imgResponse(id) {
   const rec = imgs.get(id);
   if (!rec) return new Response('not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
@@ -823,13 +1062,13 @@ function buildServer() {
 
   server.registerTool('compose_ar', {
     title: 'ARの中身を組み立てる',
-    description: 'テーマからARの中身（タイトル・表示テキスト・色・エフェクト・素材画像）をサーバー側の Meta モデルで組み立てる。テーマが決まったら呼ぶ。呼ぶ前に、ユーザーの意向がまだ分からなければ、3つだけ短く聞いてから呼ぶこと：①背景は「キャラだけ透過（背景なし）」か「カード型（背景あり）」か。②動きは「ぴょんぴょん（跳ね続ける）」「バウンス（弾んで登場）」「ふわふわ（浮いて揺れる）」「ゆらゆら（揺れる）」「そのまま（静止）」のどれか。③エフェクトは「おまかせ」「炎」「氷」「稲妻」「花びら」「きらきら」「泡」「紙吹雪」のどれか。ユーザーが「おまかせ」と言ったら聞かずに既定（透過＋バウンス＋エフェクトおまかせ）で呼ぶ。既に聞いている・決まっている場合は聞き直さない。返ってきた公開URLと要約（どのモデルが何トークン使ったか）をそのままユーザーに伝える。そのうえで、公開するか、動きやエフェクトを変える（remix_ar）かをユーザーに選んでもらうこと。',
+    description: 'テーマからARの中身（タイトル・表示テキスト・色・エフェクト・素材画像）をサーバー側の Meta モデルで組み立てる。テーマが決まったら呼ぶ。呼ぶ前に、ユーザーの意向がまだ分からなければ、3つだけ短く聞いてから呼ぶこと：①背景は「キャラだけ透過（背景なし）」か「カード型（背景あり）」か。②動きは「ぴょんぴょん（跳ね続ける）」「バウンス（弾んで登場）」「ふわふわ（浮いて揺れる）」「ゆらゆら（揺れる）」「そのまま（静止）」のどれか。③エフェクトは「おまかせ」「炎」「氷」「稲妻」「花びら」「きらきら」「泡」「紙吹雪」「ウルトラ稲妻」のどれか。ユーザーが「おまかせ」と言ったら聞かずに既定（透過＋バウンス＋エフェクトおまかせ）で呼ぶ。既に聞いている・決まっている場合は聞き直さない。返ってきた公開URLと要約（どのモデルが何トークン使ったか）をそのままユーザーに伝える。そのうえで、公開するか、動きやエフェクトを変える（remix_ar）かをユーザーに選んでもらうこと。',
     inputSchema: {
       nickname: nickArg,
       theme: z.string().optional().describe('テーマ（一言）。前に start_create で受け取っていれば省略可'),
       background: z.enum(['transparent', 'card']).optional().describe('背景：transparent=キャラだけ透過（既定）、card=カード型'),
       motion: z.enum(['bounce', 'float', 'hop', 'sway', 'still']).optional().describe('動き：bounce=弾んで登場（既定）、hop=ぴょんぴょん跳ね続ける、float=浮いて揺れる、sway=ゆらゆら揺れる、still=静止'),
-      effect: z.enum(['auto', 'flame', 'ice', 'lightning', 'petal', 'sparkle', 'bubble', 'confetti']).optional().describe('エフェクト：auto=おまかせ（既定）、flame=炎、ice=氷、lightning=稲妻、petal=花びら、sparkle=きらきら、bubble=泡、confetti=紙吹雪'),
+      effect: z.enum(['auto', 'flame', 'ice', 'lightning', 'petal', 'sparkle', 'bubble', 'confetti', 'ultra']).optional().describe('エフェクト：auto=おまかせ（既定）、flame=炎、ice=氷、lightning=稲妻、petal=花びら、sparkle=きらきら、bubble=泡、confetti=紙吹雪、ultra=ウルトラ稲妻（本物three.js・ビューア限定）'),
       card: cardArg,
     },
     annotations: { title: 'ARの中身を組み立てる', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
@@ -970,7 +1209,7 @@ function buildServer() {
     inputSchema: {
       nickname: nickArg,
       motion: z.enum(['bounce', 'float', 'hop', 'sway', 'still']).optional().describe('新しい動き（省略時は今のまま）'),
-      effect: z.enum(['flame', 'ice', 'lightning', 'petal', 'sparkle', 'bubble', 'confetti']).optional().describe('新しいエフェクト（省略時は今のまま）'),
+      effect: z.enum(['flame', 'ice', 'lightning', 'petal', 'sparkle', 'bubble', 'confetti', 'ultra']).optional().describe('新しいエフェクト（省略時は今のまま）。ultra=ウルトラ稲妻（本物three.js・ビューア限定）'),
       card: cardArg,
     },
     annotations: { title: '動きとエフェクトを変える', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
@@ -1030,7 +1269,7 @@ async function handle(request) {
   const arTok = url.searchParams.get('ar');
   const certTok = url.searchParams.get('cert');
   const imgId = url.searchParams.get('img');
-  if (request.method === 'GET' && arTok) return arPage(arTok);
+  if (request.method === 'GET' && arTok) return ((readTok(arTok) || {}).e === 'ultra' ? arPageUltra(arTok) : arPage(arTok));
   if (request.method === 'GET' && certTok) return certPage(certTok);
   if (request.method === 'GET' && imgId) return imgResponse(imgId);
   if (isBrowser(request)) return browserPage();
