@@ -222,11 +222,21 @@ function startUnsafe(opts) {
     timer = Math.max(timer, 1.5);   // a cast on demand pushes the next timed one back
   }
 
-  let warm = false, running = true, last = performance.now(), simTime = 0, timer = 0.6;
+  let warm = false, running = true, last = performance.now(), simTime = 0, timer = 0.6, warmLeft = 0;
   (async () => {
     renderer.setRenderTarget(hdrRT);
     for (const sc of Object.values(scenes)) await renderer.compileAsync(sc, camera);
     renderer.setRenderTarget(null);
+    // warm-up: one hidden cast seen from a default camera, so every lazily built material and
+    // particle buffer is compiled before the user sees the first spell (no hitch on the first cast)
+    camera.position.set(DUMMY.x, DUMMY.y + 1.6, DUMMY.z + 4.5);
+    camera.lookAt(DUMMY.x, DUMMY.y + 0.9, DUMMY.z);
+    camera.updateMatrix(); camera.matrixWorld.copy(camera.matrix); camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+    camera.aspect = size.x / Math.max(1, size.y); camera.near = 0.01; camera.far = 400; camera.updateProjectionMatrix();
+    U.uNearFar.value.set(camera.near, camera.far);
+    el.style.opacity = '0';
+    castNow();
+    warmLeft = 2.2;
     warm = true;
   })();
 
@@ -267,6 +277,13 @@ function startUnsafe(opts) {
     if (!running) return;
     const dt = Math.max(0, Math.min((now - last) / 1000, 0.1));
     last = now;
+    if (warmLeft > 0) {
+      frame(Math.max(dt, 1 / 60));
+      warmLeft -= Math.max(dt, 1 / 60);
+      if (warmLeft <= 0) { el.style.opacity = ''; timer = 0.6; }
+      requestAnimationFrame(loop);
+      return;
+    }
     const anchor = getAnchor();
     el.style.visibility = anchor ? 'visible' : 'hidden';
     if (anchor && warm && syncCamera(anchor)) {
@@ -283,6 +300,7 @@ function startUnsafe(opts) {
     canvas: el,
     cast: castNow,
     get scale() { return k; },
+    get ready() { return warm && warmLeft <= 0; },
     stop() {
       running = false;
       window.removeEventListener('resize', resize);
