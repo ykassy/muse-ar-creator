@@ -35,14 +35,14 @@ async function transcribe(wav) {
 
 async function reply({ heard, name, persona, lang, history }) {
   const sys = `You are ${name || 'a small AR character'}, standing on the user's floor in augmented reality. ${persona || 'You are cheerful and a little mischievous.'} `
-    + `The user just poked you with their finger and said something. Answer in ${lang === 'en' ? 'English' : 'Japanese (casual, friendly)'}, in one or two short sentences, in character. `
+    + `The user is talking to you through their phone (they pressed the talk button and spoke). Answer in ${lang === 'en' ? 'English' : 'Japanese (casual, friendly)'}, in one or two short sentences, in character. `
     + 'No emojis, no stage directions, no markdown. '
     + 'Reply as JSON only: {"reply": "<what you say>", "emotion": "happy" | "surprised" | "sad" | "angry" | "neutral"} — the emotion is how you feel saying it.';
   const messages = [{ role: 'system', content: sys }];
   for (const h of (Array.isArray(history) ? history : []).slice(-6)) {
     if (h && (h.role === 'user' || h.role === 'assistant') && typeof h.content === 'string') messages.push({ role: h.role, content: h.content.slice(0, 300) });
   }
-  messages.push({ role: 'user', content: heard || (lang === 'en' ? '(pokes you without saying anything)' : '（何も言わずにつついた）') });
+  messages.push({ role: 'user', content: heard || (lang === 'en' ? '(looks at you without saying anything)' : '（何も言わずにこっちを見ている）') });
   for (let attempt = 0; attempt < 2; attempt++) {
     const res = await fetch(`${API_BASE}/chat/completions`, {
       method: 'POST',
