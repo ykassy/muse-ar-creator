@@ -40,6 +40,10 @@ const _yaw = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0), _hit = ne
 // opts.getAnchor(): { position: [x, y, z], yaw, height } of the character in AR world space, or null
 // while nothing is placed. opts.spell / opts.form pick the spell; opts.interval re-casts it.
 export function start(opts) {
+  try { return startUnsafe(opts); } catch (e) { console.warn('UltraFX: could not start', e); return null; }   // never take the AR page down
+}
+
+function startUnsafe(opts) {
   const { getCamera, getAnchor, interval = 3.5, exposure = 1, parent = document.body, zIndex = 2 } = opts;
   let spell = SPELLS.find((s) => s.id === opts.spell) ?? SPELLS.find((s) => s.id === 'lightning');
   let form = spell.forms?.includes(opts.form) ? opts.form : spell.forms?.[0] ?? '';
@@ -98,14 +102,15 @@ export function start(opts) {
   scenes.opaque.add(spikes.opaque);
   scenes.refract.add(spikes.refract, metaballs.group);
   scenes.fx.add(bolts.glows, trails.fx, shocks.mesh, volumes.group);
-  // only the chosen spell allocates (a phone can't hold all 39): its kinds, then create()
-  const live = [spell];
-  for (const s of live) {
+  // every spell's particle kinds are registered (hybrids borrow others', e.g. blizzard emits
+  // 'wind.streak'), but only the chosen spell allocates in create(): a phone can't hold all 39
+  for (const s of SPELLS) {
     s.params = { ...s.params };
     for (const [k, def] of Object.entries(s.kinds ?? {})) particles.addKind(`${s.id}.${k}`, def);
     fx.spells[s.id] = s;
-    s.inst = s.create(fx);
   }
+  const live = [spell];
+  for (const s of live) s.inst = s.create(fx);
   particles.build();
   scenes.lines.add(particles.glow);
   scenes.fx.add(particles.media);
