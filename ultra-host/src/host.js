@@ -35,10 +35,13 @@ const NO_TIMER = { begin() {}, beginFrame() {}, endFrame() {} };
 const DUMMY = ARENA.dummies[0];
 const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
 const _yaw = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0), _hit = new THREE.Vector3();
+const _arena = new THREE.Matrix4(), _t = new THREE.Matrix4();
 
 // opts.getCamera(): the AR camera (any three version: matrixWorld, projectionMatrix, near, far).
 // opts.getAnchor(): { position: [x, y, z], yaw, height } of the character in AR world space, or null
-// while nothing is placed. opts.spell / opts.form pick the spell; opts.interval re-casts it.
+// while nothing is placed. opts.getOccluder() (optional): the character's own triangles in AR world space,
+// [{ key, position: Float32Array, uv, index, image, alphaTest }], redrawn here as black depth so spell
+// parts behind the character are hidden by it (black adds nothing under the screen blend). opts.spell / opts.form pick the spell; opts.interval re-casts it.
 export function start(opts) {
   try { return startUnsafe(opts); } catch (e) { console.warn('UltraFX: could not start', e); return null; }   // never take the AR page down
 }
@@ -118,6 +121,43 @@ function startUnsafe(opts) {
   scenes.refract.add(scenes.lines);
   const casts = new Casts(fx);
   fx.casts = casts;
+
+  // the character as a depth-only (black) stand-in, rebuilt from the AR side's triangles every frame
+  const occ = new Map();
+  function syncOccluder() {
+    const list = opts.getOccluder?.();
+    const seen = new Set();
+    if (list) for (const o of list) {
+      seen.add(o.key);
+      let e = occ.get(o.key);
+      if (!e || e.image !== o.image || e.count !== o.position.length) {
+        if (e) { scenes.opaque.remove(e.mesh); e.mesh.geometry.dispose(); e.mesh.material.map?.dispose(); e.mesh.material.dispose(); }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(o.position.length), 3).setUsage(THREE.DynamicDrawUsage));
+        if (o.uv) geo.setAttribute('uv', new THREE.BufferAttribute(o.uv, 2));
+        if (o.index) geo.setIndex(new THREE.BufferAttribute(o.index, 1));
+        let map = null;
+        if (o.image && o.uv) { map = new THREE.Texture(o.image); map.flipY = !!o.flipY; map.needsUpdate = true; }
+        const mat = new THREE.MeshBasicMaterial({ color: 0x000000, map, alphaTest: map ? (o.alphaTest || 0.5) : 0, side: THREE.DoubleSide, toneMapped: false });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.matrixAutoUpdate = false; mesh.frustumCulled = false;
+        scenes.opaque.add(mesh);
+        e = { mesh, image: o.image, count: o.position.length };
+        occ.set(o.key, e);
+      }
+      e.mesh.geometry.attributes.position.array.set(o.position);
+      e.mesh.geometry.attributes.position.needsUpdate = true;
+      // AR world -> arena: dummy + R(-yaw) * (p - anchor) / k
+      _yaw.setFromAxisAngle(_up, -(lastAnchor.yaw ?? 0));
+      _arena.makeTranslation(DUMMY.x, DUMMY.y, DUMMY.z)
+        .multiply(_t.makeScale(1 / k, 1 / k, 1 / k))
+        .multiply(_t.makeRotationFromQuaternion(_yaw))
+        .multiply(_t.makeTranslation(-lastAnchor.position[0], -lastAnchor.position[1], -lastAnchor.position[2]));
+      e.mesh.matrix.copy(_arena); e.mesh.matrixWorld.copy(_arena);
+      e.mesh.visible = true;
+    }
+    for (const [key, e] of occ) if (!seen.has(key)) e.mesh.visible = false;
+  }
 
   let hdrRT = null;
   const size = new THREE.Vector2();
@@ -232,6 +272,7 @@ function startUnsafe(opts) {
     if (anchor && warm && syncCamera(anchor)) {
       timer -= dt;
       if (timer <= 0) { timer = interval; castNow(); }
+      try { syncOccluder(); } catch (e) { console.warn('UltraFX: occluder', e); opts.getOccluder = null; }
       frame(dt);
     }
     requestAnimationFrame(loop);
