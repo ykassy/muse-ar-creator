@@ -6,7 +6,7 @@ Say a one-word theme in Muse, and this connector:
 
 1. **Composes** the character server-side with the Meta Model API — `muse-spark-1.3` designs the title, overlay text, base color, the magic spell, and the character's **name and personality** (JSON); `muse-image-1.0` generates the artwork, plus face variants (happy / surprised / sad / angry) via image edits, each re-cut with the original silhouette mask. Token usage is logged on every run as Tooling evidence.
 2. **Builds a semi-3D model on the server** (`api/glb.mjs`, pure JS): the flat artwork becomes a plate with real thickness (1/15 of its height), an edge-coloured rim, a baked ground shadow, a 3-joint squash-and-stretch rig, and **nine named animation clips** — `idle` / `happy` / `surprised` / `sad` / `angry` / `talk` / `dangle` / `land` / `zap`.
-3. **Publishes into HACKAR:S** (our production WebAR platform) as a real project: the model, one of five real three.js **Ultra Elements** spells (lightning / fire / frozen lightning / starfall / light pillar), expression switching, and **Hand Play** — pinch the character to pick it up, poke it and it listens and answers in character (voice transcription + Spark reply + speech), hold up a palm to cast its spell.
+3. **Publishes into HACKAR:S** (our production WebAR platform) as a real project: the model, one of five real three.js **Ultra Elements** spells (lightning / fire / frozen lightning / starfall / light pillar), expression switching, and **Hand Play** — pinch the character with your fingers to pick it up and carry it, press the talk button and it listens and answers in character (voice transcription + Spark reply + speech, with an emotion that changes its face and moves), hold up a palm to cast its spell. It never stands still (hops, spins, dives flat and pops back up), and it plays a **wish game** with kids: it asks to be lifted, carried to a glowing ring, talked to, petted, or chased — tap to blow bubbles at it while it dodges.
 4. **Certifies** the creation with a signed certificate page (one per creator) that links the published work and prints the Meta Model API usage.
 
 If the model API is unavailable, composition falls back to a deterministic template so a creation always stands up (publishing still requires the real pipeline and fails honestly rather than substituting another URL).
@@ -16,7 +16,8 @@ If the model API is unavailable, composition falls back to a deterministic templ
 | Part | When |
 |---|---|
 | This connector: MCP server (`api/mcp.js`), the JS GLB builder (`api/glb.mjs`), the Blender reference pipeline (`pipeline/`), expression generation, the talk endpoint (`api/talk.js`) | **Built during the hackathon (Oct 26 – Nov 4, 2026)** |
-| HACKAR:S-side additions used by this connector: `POST /api/project-create` extensions (`ultraFx`, `handPlay`, `modelGlbUrl`, expression overlays), `POST /api/asset-store`, and the player features they drive (Ultra FX overlay, Hand Play interactions, emotion clip/expression switching) | **Built during the hackathon** (in the HACKAR:S repository) |
+| The player features on the phone: Hand Play (pinch / carry / poke / palm), the talk button, floor-AR-style choreography, the wish game for kids with "catch me if you can", emotion clip / expression switching — **copied into [`player/`](player/)** — and the Ultra Elements overlay module [`ultra-host/`](ultra-host/) | **Built during the hackathon** (served from hackar-s.com; see `player/README.md`) |
+| HACKAR:S-side API additions used by this connector: `POST /api/project-create` extensions (`ultraFx`, `handPlay`, `modelGlbUrl`, expression overlays), `POST /api/asset-store` | **Built during the hackathon** (in the closed-source HACKAR:S repository) |
 | HACKAR:S platform itself — the no-code WebAR editor, SLAM player core, accounts, project storage at hackar-s.com | Pre-existing product of HACK IT INC., in production before the hackathon; used here as the publishing target |
 | **Ultra Elements** — the five spell effects are from the open-source three.js library [Humpalumps/ultra-elements](https://github.com/Humpalumps/ultra-elements), **MIT License** | Pre-existing third-party OSS, credited here as required |
 
@@ -58,4 +59,4 @@ Connect the deployed `/mcp` endpoint as a custom connector in the Muse app, then
 
 ## License
 
-This project's own code is MIT. The spell effects come from **Ultra Elements** by Humpalumps (https://github.com/Humpalumps/ultra-elements), MIT License, used unmodified in the HACKAR:S player.
+© 2026 HACK IT INC. All rights reserved. This repository is public so the hackathon judges can review the work; no license to use, copy or modify it is granted. Third-party components keep their own licenses — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The spell effects come from **Ultra Elements** by Humpalumps (https://github.com/Humpalumps/ultra-elements), MIT License.
