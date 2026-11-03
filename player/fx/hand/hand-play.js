@@ -205,7 +205,7 @@ export async function start(opts) {
   // raise it like a virtual pet (pet.js): hunger / mood / level, floating status panel and buttons
   let pet = null
   if (ov.handPet !== false && game) {
-    const { createPet } = await import('./pet.js?v=20261104m')
+    const { createPet } = await import('./pet.js?v=20261104r')
     pet = createPet({
       THREE, scene, getCamera, canvas, group, getRect: () => charRect(), getBox: () => (charRect() ? box : null),
       emote, moves, ov, dbg, getHand: () => hand,

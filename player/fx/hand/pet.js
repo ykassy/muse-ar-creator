@@ -153,15 +153,28 @@ export function createPet(api) {
     const box = api.getBox && api.getBox()
     const top = box ? box.max.y : g.position.y + H
     panel.position.set((box ? (box.min.x + box.max.x) / 2 : base.x), top + H * 0.2, (box ? (box.min.z + box.max.z) / 2 : base.z))
-    panel.scale.set(H * 1.05, H * 1.05 * 236 / 512, 1)
-    const n = buttons.length, gap = H * 0.36
+    // keep a readable on-screen size: in landscape (shorter screen) or zoomed out the world sizes
+    // project small, so grow them up to a floor in pixels (the row spreads out with them)
+    const kB = Math.max(1, BTN_MIN_PX / Math.max(1, pxOf(base, H * 0.3)))
+    const kP = Math.max(1, PANEL_MIN_PX / Math.max(1, pxOf(panel.position, H * 1.05)))
+    panel.scale.set(H * 1.05 * kP, H * 1.05 * kP * 236 / 512, 1)
+    panel.position.y += H * 1.05 * (kP - 1) * 236 / 512 / 2 + H * 0.3 * Math.min(1, kP - 1)   // grown: keep its bottom edge where it was, then lift clear of the head
+    const n = buttons.length, gap = H * 0.36 * kB
     buttons.forEach((b, i) => {
       const off = (i - (n - 1) / 2) * gap
       const pop = b.pressT > 0 ? 1 - 0.18 * Math.sin(Math.min(1, b.pressT / 0.25) * Math.PI) : 1
       b.sp.position.copy(base).addScaledVector(right, off).addScaledVector(f, -H * 0.55)
-      b.sp.position.y = g.position.y + H * 0.2 + Math.sin(t * 2 + i) * H * 0.015
-      b.sp.scale.setScalar(H * 0.3 * pop * (1 + b.hover * 0.12))
+      // grown buttons hang down from a top edge that drops from the knees to the feet, off the body
+      b.sp.position.y = g.position.y + H * (0.35 - 0.3 * Math.min(1, kB - 1) - 0.15 * kB) + Math.sin(t * 2 + i) * H * 0.015
+      b.sp.scale.setScalar(H * 0.3 * kB * pop * (1 + b.hover * 0.12))
     })
+  }
+  const BTN_MIN_PX = 64, PANEL_MIN_PX = 230
+  // on-screen width (px) of a world length lying sideways at a point
+  function pxOf(at, len) {
+    const cam = getCamera(), w = canvas.getBoundingClientRect().width
+    const a = at.clone().project(cam), c = at.clone().addScaledVector(right, len).project(cam)
+    return Math.abs(c.x - a.x) / 2 * w
   }
 
   // --- pressing ---------------------------------------------------------------------------------
