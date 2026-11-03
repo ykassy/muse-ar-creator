@@ -174,9 +174,13 @@ MOVES.dizzy = () => [
 MOVES.happy = MOVES.spinJump
 MOVES.zap = MOVES.surprised
 const IDLE = [['hopLap', 3], ['spinJump', 2], ['bigJump', 1.5], ['lookAround', 2], ['flatPop', 1.2]]
+// calm (a pet that is just there): only small, rare moves - mostly looking around
+const IDLE_CALM = [['lookAround', 4], ['hopLap', 1]]
 
-export function createMoves({ rand = Math.random } = {}) {
-  let keys = null, t = 0, name = '', wait = 2.5
+export function createMoves({ rand = Math.random, calm = false } = {}) {
+  const idleList = calm ? IDLE_CALM : IDLE
+  const nextWait = () => (calm ? 9 + rand() * 8 : 2.5 + rand() * 3)
+  let keys = null, t = 0, name = '', wait = calm ? 6 : 2.5, quiet = false
   const pose = { ...REST }
   function play(n) {
     const f = MOVES[n]
@@ -207,15 +211,15 @@ export function createMoves({ rand = Math.random } = {}) {
   function update(dt, idle) {
     if (keys) {
       t += dt
-      if (sample()) { keys = null; name = ''; Object.assign(pose, REST); wait = 2.5 + rand() * 3 }
-    } else if (idle) {
+      if (sample()) { keys = null; name = ''; Object.assign(pose, REST); wait = nextWait() }
+    } else if (idle && !quiet) {
       wait -= dt
       if (wait <= 0) {
-        let total = IDLE.reduce((s, [, w]) => s + w, 0), r = rand() * total
-        for (const [n, w] of IDLE) { if ((r -= w) <= 0) { play(n); break } }
+        let total = idleList.reduce((s, [, w]) => s + w, 0), r = rand() * total
+        for (const [n, w] of idleList) { if ((r -= w) <= 0) { play(n); break } }
       }
     } else wait = Math.max(wait, 2)
     return pose
   }
-  return { play, cancel, update, get name() { return name }, get pose() { return pose } }
+  return { play, cancel, update, get name() { return name }, get pose() { return pose }, set quiet(v) { quiet = !!v } }   // quiet: no idle moves (asleep)
 }

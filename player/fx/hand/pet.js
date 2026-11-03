@@ -193,6 +193,8 @@ export function createPet(api) {
   function syncDom() {
     placeEl(pc, panel, panel.scale.x, 236 / 512)
     for (const b of buttons) placeEl(b.c, b.sp, b.sp.scale.x, 1)
+    for (const p of poops) placeEl(p.c, p.sp, p.sp.scale.x, 1)
+    placeEl(zEl, zAnchor, zAnchor.scale.x, 0.6)
   }
   function screenOf(obj) {
     const p = obj.position.clone().project(getCamera())
@@ -219,12 +221,17 @@ export function createPet(api) {
         const rad = Math.max(44, Math.hypot(edge.x - c.x, edge.y - c.y) * 1.2)   // stays touchable when zoomed out
         if (Math.hypot(h.indexPx.x - c.x, h.indexPx.y - c.y) < rad) { target = b; break }
       }
+      if (!target) for (const p of poops) {
+        if (!p.sp.visible || p.gone) continue
+        const c = screenOf(p.sp)
+        if (Math.hypot(h.indexPx.x - c.x, h.indexPx.y - c.y) < 50) { target = p; break }
+      }
     }
     if (lockedOn && target !== lockedOn) lockedOn = null      // finger left the button: it can be pressed again
     if (target && target !== lockedOn) {
       if (touched !== target) { touched = target; touchT = 0 }
       touchT += dt
-      if (touchT >= TOUCH_S) { lockedOn = target; touched = null; press(target) }
+      if (touchT >= TOUCH_S) { lockedOn = target; touched = null; target.poop ? clean(target) : press(target) }
     } else { touched = null; touchT = 0 }
     dbgState.pointing = pointing; dbgState.target = target && target.id; dbgState.locked = lockedOn && lockedOn.id
     for (const b of buttons) {
@@ -253,6 +260,7 @@ export function createPet(api) {
   function press(b) {
     if (!b) return
     b.pressT = 0.0001
+    wake('touch')
     fire('press', b.id)
     if (b.id === 'food') feed(b)
     else if (b.id === 'pet') { gain(2, 0, 10); fire('pet') }
@@ -286,27 +294,102 @@ export function createPet(api) {
     }
   }
 
+  // --- poop: a while after a meal a little one drops by its feet; touch it with a fingertip (or tap it)
+  // to clean up. Left alone it makes the mood fall faster. Up to two at a time.
+  const POOP_AFTER = () => 120 + Math.random() * 120   // s after eating
+  let poopIn = null
+  const poops = []
+  on('ate', () => { if (poopIn == null) poopIn = POOP_AFTER() })
+  function addPoop(silent) {
+    if (poops.length >= 2) return
+    const c = document.createElement('canvas'); c.width = c.height = 128
+    const x = c.getContext('2d'); x.font = '92px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'
+    x.fillText('💩', 64, 70)
+    Object.assign(c.style, uiStyle, { zIndex: 54, pointerEvents: 'auto', touchAction: 'manipulation', cursor: 'pointer', transition: 'opacity .4s, transform .05s' })
+    document.body.appendChild(c)
+    const p = { poop: true, c, sp: new THREE.Object3D(), side: poops.some((q) => q.side > 0) ? -1 : 1, t: 0, gone: 0 }
+    c.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); window.__hpUiTapAt = performance.now(); clean(p) })
+    for (const ev of ['touchstart', 'touchend', 'click']) c.addEventListener(ev, (e) => e.stopPropagation(), { passive: ev !== 'click' })
+    poops.push(p); st.poops = poops.length; save()
+    if (!silent) fire('poop')
+  }
+  for (let i = 0; i < Math.min(2, st.poops || 0); i++) addPoop(true)
+  function clean(p) {
+    if (p.gone) return
+    p.gone = 0.0001; p.c.style.opacity = '0'
+    wake('touch')
+    gain(2, 0, 8); fire('clean')
+  }
+  function updatePoops(dt) {
+    const g = group(), s = state()
+    if (poopIn != null && !s.challenge) { poopIn -= dt; if (poopIn <= 0) { poopIn = null; addPoop() } }
+    for (let i = poops.length - 1; i >= 0; i--) {
+      const p = poops[i]
+      if (p.gone) { p.gone += dt; if (p.gone > 0.45) { p.c.remove(); poops.splice(i, 1); st.poops = poops.length; save() } }
+      p.sp.visible = !!(g && g.parent && s.ready && !s.challenge)
+      if (!p.sp.visible) continue
+      const H = s.height
+      p.sp.position.copy(g.position).addScaledVector(right, p.side * H * 0.48).addScaledVector(f, -H * 0.12)
+      p.sp.position.y = g.position.y + H * 0.11
+      p.sp.scale.setScalar(H * 0.24 * (p.gone ? 1 - p.gone * 2 : 1))
+    }
+  }
+
+  // --- sleep: at night (21:00-7:00 on this device) it dozes off - slow breathing and a floating "zzz".
+  // Touching it, a button or talking wakes it for a while; then it nods off again.
+  const zEl = document.createElement('div')
+  zEl.textContent = 'z z z'
+  Object.assign(zEl.style, uiStyle, { pointerEvents: 'none', color: '#fff', font: `900 22px/1 ${CZ ? '"M PLUS Rounded 1c", sans-serif' : 'sans-serif'}`,
+    textShadow: '0 2px 6px rgba(70,60,120,.5)', letterSpacing: '2px', textAlign: 'center' })
+  document.body.appendChild(zEl)
+  const zAnchor = new THREE.Object3D()
+  let asleep = false, awakeUntil = 0, forceNight = null
+  const isNight = () => { if (forceNight != null) return forceNight; const h = new Date().getHours(); return h >= 21 || h < 7 }
+  function wake(why) {
+    if (!isNight()) return
+    awakeUntil = performance.now() + 120000
+    if (asleep) { asleep = false; fire('wake', why) }
+  }
+  window.addEventListener('handplay:poke', () => wake('touch'))
+  function updateSleep() {
+    const s = state()
+    const want = isNight() && performance.now() > awakeUntil && s.ready && !s.grabbing && !s.talking && !s.challenge
+    if (want !== asleep) { asleep = want; fire(asleep ? 'sleep' : 'wake', 'time') }
+    zAnchor.visible = asleep
+    if (!asleep) return
+    const g = group(), H = s.height, box = api.getBox && api.getBox()
+    const top = box ? box.max.y : g.position.y + H
+    zAnchor.position.copy(g.position).addScaledVector(right, H * 0.35)
+    zAnchor.position.y = top + H * 0.05 + Math.sin(t * 1.5) * H * 0.04
+    zAnchor.scale.setScalar(H * 0.45)
+    zEl.style.opacity = String(0.55 + 0.35 * Math.sin(t * 1.5))
+    zEl.style.fontSize = Math.max(16, parseFloat(zEl.style.width || '60') * 0.3) + 'px'
+  }
+
   // --- needs: says so when hungry / bored --------------------------------------------------------
   let needT = 12, t = 0
   function update(dt) {
     t += dt
     const s = state()
-    st.hunger = Math.max(0, st.hunger - dt * HUNGER_PER_S)
-    st.mood = Math.max(0, st.mood - dt * MOOD_PER_S * (st.hunger < 30 ? 2 : 1))
+    st.hunger = Math.max(0, st.hunger - dt * HUNGER_PER_S * (asleep ? 0.5 : 1))
+    st.mood = Math.max(0, st.mood - dt * MOOD_PER_S * (st.hunger < 30 ? 2 : 1) * (poops.length ? 1.5 : 1) * (asleep ? 0.5 : 1))
     saveT += dt
     if (saveT > 5) { saveT = 0; save(); drawPanel() }
     growthShown += (growth - growthShown) * (1 - Math.exp(-dt * 2))
     layout()
+    updatePoops(dt)
+    updateSleep()
     syncDom()
     updateDwell(dt)
     updateFoods(dt)
     for (const b of buttons) if (b.pressT > 0) { b.pressT += dt; if (b.pressT > 0.25) b.pressT = 0 }
-    if (s.ready && !s.talking && !s.grabbing && !s.challenge) {
+    if (s.ready && !s.talking && !s.grabbing && !s.challenge && !asleep) {
       needT -= dt
       if (needT <= 0) {
         needT = 25 + Math.random() * 10
         if (st.hunger < 30) fire('need', 'hungry')
         else if (st.mood < 30) fire('need', 'bored')
+        else if (poops.length) fire('poop')
       }
     }
   }
@@ -316,10 +399,13 @@ export function createPet(api) {
     get growth() { return growthShown },
     get stats() { return { ...st } },
     get debug() { return { ...dbgState } },
-    get aiming() { return !!dbgState.target },   // fingertip on a button: hand-play skips poking the character
+    get aiming() { return !!dbgState.target },
+    get asleep() { return asleep },   // fingertip on a button: hand-play skips poking the character
     // tests / demos
     set(v) { Object.assign(st, v); growth = growthOf(st.level); drawPanel(); save() },
     press(id) { press(buttons.find((b) => b.id === id)) },
-    stop() { pc.remove(); for (const b of buttons) b.c.remove() },
+    poop() { addPoop() }, clean() { if (poops[0]) clean(poops[0]) },
+    night(v) { forceNight = v; awakeUntil = 0 },
+    stop() { pc.remove(); zEl.remove(); for (const b of buttons) b.c.remove(); for (const p of poops) p.c.remove() },
   }
 }

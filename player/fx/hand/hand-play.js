@@ -162,8 +162,9 @@ export async function start(opts) {
   window.addEventListener('handplay:palm', () => setTimeout(() => emote('zap', 2500), 700))
 
   // in-house floor-AR style choreography (moves.js): rise from the floor, hop laps, spins, emotions
-  const { createMoves } = await import('./moves.js?v=20261103x')
-  const moves = createMoves()
+  const { createMoves } = await import('./moves.js?v=20261104t')
+  const moves = createMoves({ calm: ov.handPet !== false })   // a pet: mostly calm, just there
+  let breathT = 0
   let H = 0, T = 0   // character height / thickness in the group's units, measured once at rest
 
   // talk: the talk button (talk.js). A tap anywhere also unlocks the mic / voice for iOS
@@ -205,7 +206,7 @@ export async function start(opts) {
   // raise it like a virtual pet (pet.js): hunger / mood / level, floating status panel and buttons
   let pet = null
   if (ov.handPet !== false && game) {
-    const { createPet } = await import('./pet.js?v=20261104s')
+    const { createPet } = await import('./pet.js?v=20261104t')
     pet = createPet({
       THREE, scene, getCamera, canvas, group, getRect: () => charRect(), getBox: () => (charRect() ? box : null),
       emote, moves, ov, dbg, getHand: () => hand,
@@ -230,6 +231,10 @@ export async function start(opts) {
       game.say(k === 'hungry' ? T2("I'm hungry… (press Food)", 'おなかすいた…（ごはんを押してね）') : T2('Play with me!', 'あそんで〜！'), 4500)
     })
     pet.on('levelup', (lv) => game.celebrate(lv))
+    pet.on('poop', () => game.say(T2('Oops… (touch it to clean up)', 'あっ…（さわってそうじしてね）'), 3500))
+    pet.on('clean', () => { emote('happy', 1500); game.pop(T2('Sparkly!', 'ぴかぴか！'), '#7ec8ea') })
+    pet.on('sleep', () => { moves.quiet = true; moves.cancel(); face('neutral'); game.say(T2('Good night… zzz', 'おやすみ…zzz'), 3000) })
+    pet.on('wake', (why) => { moves.quiet = false; if (why === 'touch') game.say(T2('*yawn*… morning?', 'ふわぁ…おはよ？'), 2500) })
     window.__hpPet = pet
   }
 
@@ -493,6 +498,11 @@ export async function start(opts) {
     let sx = mp.sx * gr, sy = mp.sy * gr
     if (grab.on) { const st = 1.05 + Math.sin(grab.t * 11 + 1) * 0.03; sy *= st; sx /= Math.sqrt(st) }
     else { sy *= 1 - grab.squash; sx *= 1 + grab.squash * 0.6 }
+    // breathing: slow and small; slower and deeper while asleep
+    const zz = pet?.asleep ? 1 : 0
+    breathT += dt * (zz ? 1.3 : 2.2)
+    if (!grab.on) sy *= 1 + Math.sin(breathT) * (zz ? 0.025 : 0.012)
+    c.rotation.x += zz * 0.12 * (1 - Math.min(1, Math.abs(phi) * 10))   // nodding off, head a bit forward
     const bob = c.userData._talkBob || 1
     c.scale.set(sx * bob, sy * bob, sx * bob)
     c.updateMatrixWorld(true)
