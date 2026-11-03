@@ -5,7 +5,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import VFX_SOURCES from './vfx-sources.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { createHmac } from 'node:crypto';
+import { createHmac, createHash, randomBytes } from 'node:crypto';
 import { inflateSync, deflateSync } from 'node:zlib';
 import { z } from 'zod';
 import { buildGlb } from './glb.mjs';
@@ -1281,6 +1281,43 @@ async function makeFaces(rawPngBuf, keyedBuf, keyCh) {
 // 生成画像（不透明化して渡す）から "cartoon character" のマスクを取り、
 // クロマキーより綺麗な輪郭が得られたときだけ差し替える。安全弁：カバー率が
 // 異常、またはクロマキーの輪郭と大きく食い違う（IoU < 0.5）ときはクロマキーのまま。
+
+// ---- 遊びの中身：Muse Spark がキャラの世界観からクイズ・なぞとき・スポットを作る ----
+// 答え合わせはページ側で、正規化した答えの SHA-256（塩つき）を比べる。正規化はページの norm() と同じ。
+const normAns = (s) => String(s || '').normalize('NFKC').toLowerCase()
+  .replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
+  .replace(/[\s、。・,.!?！？「」『』()（）"'\-]/g, '');
+async function callPlaySpark({ name, persona, theme, lang, nSpots }) {
+  const L = lang === 'en' ? 'English' : 'Japanese (friendly, easy enough for kids; riddle answers in hiragana)';
+  const ask = `You make a small play experience hosted by the character "${name}" (theme: "${theme}"; personality: "${persona}"). Write everything in ${L}, in the character's world. `
+    + 'Reply with ONE JSON object only: {"title": "short title", "intro": "one line the host says at the start", "clear": "one line the host says when everything is cleared (it invites the player to meet it in AR)", '
+    + '"quiz": [5 items {"q": "question", "choices": ["3 short choices"], "answer": <index of the correct choice>, "ok": "host line when right", "ng": "host line when wrong", "explain": "one-line explanation"}], '
+    + '"riddle": [3 items {"q": "a word riddle (nazotoki) with ONE short answer word", "hints": ["hint 1", "hint 2"], "answers": ["accepted spellings of the answer, 1-4 items"], "explain": "the answer and why"}]'
+    + (nSpots ? `, "spots": [${nSpots} items {"name": "a short spot name for a stamp rally at an event venue", "hint": "where it might be", "say": "host line at that spot"}]` : '')
+    + '}. Quiz facts must be about the character and its world as described here (no real-world trivia that could be wrong). Riddles must be fair and solvable with the hints.';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(`${API_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${MODEL_API_KEY}`, 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(45_000),
+      body: JSON.stringify({ model: SPARK_MODEL, temperature: 0.8, max_tokens: 6000, reasoning_effort: 'low', messages: [{ role: 'user', content: ask }] }),
+    });
+    if (!res.ok) throw new Error(`play spark http ${res.status}`);
+    const data = await res.json();
+    const raw = String(data?.choices?.[0]?.message?.content || '').replace(/```(?:json)?/gi, '');
+    const m = /\{[\s\S]*\}/.exec(raw);
+    try {
+      const j = JSON.parse(m[0]);
+      j.quiz = (j.quiz || []).filter((q) => q && q.q && Array.isArray(q.choices) && q.choices.length >= 2 && Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.choices.length);
+      j.riddle = (j.riddle || []).filter((r) => r && r.q && Array.isArray(r.answers) && r.answers.length);
+      if (!j.quiz.length && !j.riddle.length) throw new Error('empty');
+      j.usage = data?.usage || null;
+      return j;
+    } catch { console.log('[AR] play-spark-retry', JSON.stringify({ attempt })); }
+  }
+  throw new Error('play spark returned no usable json');
+}
+
 // ---- 自己チェック：Muse Spark が切り抜いた絵を AR に置いた姿で見て、だめなら描き直しを頼む ----
 // 灰色の床に置いた見た目（512px）を Spark に見せ、JSON で合否・点数・直し方を返させる。
 async function checkArt(cutBuf, theme) {
@@ -1640,6 +1677,56 @@ function buildServer() {
     };
   });
 
+  // ---- 遊び（クイズ・なぞとき・スタンプラリー）：公開したキャラを司会にした体験ページを hackar-s.com に作る ----
+  server.registerTool('make_play', {
+    title: '遊びを作る（クイズ・なぞとき・スタンプラリー）',
+    description: '公開したキャラ（IP）を司会にして、クイズ・なぞとき・スタンプラリーの体験ページを Muse Spark で作り、hackar-s.com/play/ のURLを返す。全部クリアするとキャラのARに会える。publish_ar のあとに呼ぶ。ユーザーが種類を言っていなければ3つとも作る。スタンプラリーのスポット数は言われなければ4。返ってきたURL（遊ぶページとQRシート）は言い換えずにそのまま伝える。',
+    inputSchema: {
+      nickname: nickArg,
+      kinds: z.array(z.enum(['quiz', 'riddle', 'rally'])).max(3).optional().describe('作る遊び：quiz=クイズ、riddle=なぞとき、rally=スタンプラリー。省略で3つとも'),
+      spots: z.number().int().min(2).max(6).optional().describe('スタンプラリーのスポット数（2〜6、既定4）'),
+      card: cardArg,
+    },
+    annotations: { title: '遊びを作る', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, async ({ nickname, kinds, spots, card }) => {
+    const u = getU(nickname, card);
+    if (!u.arTok || !u.hackarsUrl) return { content: [{ type: 'text', text: '先にキャラを作って公開してね（compose_ar → publish_ar）。遊びはそのキャラが司会をするよ。' }], structuredContent: { needsPublish: true, card: packCard(u) } };
+    if (!MODEL_API_KEY) return { content: [{ type: 'text', text: 'いまは遊びを作れないみたい（モデルが使えません）。' }], structuredContent: { failed: true, card: packCard(u) } };
+    const p = readTok(u.arTok) || {};
+    const want = kinds && kinds.length ? [...new Set(kinds)] : ['quiz', 'riddle', 'rally'];
+    const nSpots = want.includes('rally') ? (spots || 4) : 0;
+    const lang = p.lg === 'en' ? 'en' : 'ja';
+    try {
+      const gen = await callPlaySpark({ name: p.nm || p.ti || 'character', persona: p.ps || '', theme: p.th || '', lang, nSpots });
+      const salt = randomBytes(12).toString('base64url');
+      const h = (x) => createHash('sha256').update(`${salt}:${x}`).digest('hex');
+      const quiz = (gen.quiz || []).slice(0, 5).map((q) => ({ q: q.q, choices: q.choices.slice(0, 4), a: h(String(q.answer)), ok: q.ok || '', ng: q.ng || '', explain: q.explain || '' }));
+      const riddle = (gen.riddle || []).slice(0, 3).map((r) => ({ q: r.q, hints: (r.hints || []).slice(0, 2), a: [...new Set((r.answers || []).map((x) => h(normAns(x))))].slice(0, 6), explain: r.explain || '' }));
+      const spotsOut = (gen.spots || []).slice(0, nSpots).map((sp, i) => ({
+        name: sp.name, hint: sp.hint || '', say: sp.say || '',
+        task: (i % 2 === 1 && riddle.length) ? { type: 'riddle', i: Math.floor(i / 2) % riddle.length } : { type: 'quiz', i: Math.floor(i / 2) % Math.max(1, quiz.length) },
+      }));
+      const data = {
+        v: 1, salt, title: gen.title || `${p.nm}とあそぼう`, lang,
+        ip: { name: p.nm || '', world: p.ps || p.th || '' },
+        host: { name: p.nm || '', img: (p.f && (p.f.neutral || p.f.happy)) || null, color: p.c || null, intro: gen.intro || '', clear: gen.clear || '' },
+        ar: u.hackarsUrl, kinds: want, quiz, riddle, rally: { spots: spotsOut },
+      };
+      const url = await storeAsset('json', Buffer.from(JSON.stringify(data)));
+      const id = url && (/ar-creator\/([0-9a-f-]{36})\.json$/.exec(url) || [])[1];
+      if (!id) throw new Error('store failed');
+      const playUrl = `https://hackar-s.com/play/${id}`;
+      u.playUrl = playUrl;
+      console.log('[AR] play-made', JSON.stringify({ nickname: u.nickname, id, kinds: want, quiz: quiz.length, riddle: riddle.length, spots: spotsOut.length, usage: gen.usage }));
+      const names = { quiz: `クイズ${quiz.length}問`, riddle: `なぞとき${riddle.length}つ`, rally: `スタンプラリー${spotsOut.length}か所` };
+      const text = `できたよ！「${data.title}」\n${want.map((k) => names[k]).join('・')}で、${p.nm}が司会をするよ。ぜんぶクリアすると、${p.nm}に AR で会えるよ。\n遊ぶページ：\n${playUrl}\n${want.includes('rally') ? `スタンプラリーのQRシート（印刷して各スポットに貼ってね）：\n${playUrl}?print=1\n` : ''}\nMuse Spark が作りました（${usageText('Spark', gen.usage)}）`;
+      return { content: [{ type: 'text', text }], structuredContent: { url: playUrl, qrSheet: want.includes('rally') ? `${playUrl}?print=1` : null, kinds: want, sparkUsage: gen.usage, card: packCard(u) } };
+    } catch (e) {
+      console.log('[AR] play-failed', JSON.stringify({ error: String(e?.message || e) }));
+      return { content: [{ type: 'text', text: '遊びを作るのに失敗しちゃった。もう一度「遊びを作って」と言ってね。' }], structuredContent: { failed: true, card: packCard(u) } };
+    }
+  });
+
   return server;
 }
 
@@ -1661,7 +1748,7 @@ const isBrowser = (request) => request.method === 'GET' && !(request.headers.get
 // ---- 使いすぎ防止：お金のかかる道具（モデル呼び出し・本番への公開）に回数の上限をかける ----
 // Muse 経由の呼び出しは同じ IP から来ることが多いので、IP ごとは緩め、全体（このインスタンス）で締める。
 // AR_PAUSED=1 にすると、お金のかかる道具だけ止まる（ページ表示などはそのまま）。
-const COSTLY = { compose_ar: [20, 60], publish_ar: [30, 90], remix_ar: [30, 90] };   // [IP ごと, 全体] / 1時間
+const COSTLY = { compose_ar: [20, 60], publish_ar: [30, 90], remix_ar: [30, 90], make_play: [20, 60] };   // [IP ごと, 全体] / 1時間
 const hits = new Map();
 function allow(key, max, windowMs = 3600_000) {
   const now = Date.now(), a = (hits.get(key) || []).filter((t) => now - t < windowMs);
