@@ -77,10 +77,10 @@ const getU = (nickname, card) => {
   return freshUser(nickname || c?.n);
 };
 // Durable asset storage (HACKAR:S deployments bucket via /api/asset-store).
-async function storeAsset(kind, buf) {
+async function storeAsset(kind, buf, name) {
   if (!HACKARS_API_KEY || !buf) return null;
   try {
-    const r = await fetch(ASSET_STORE_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': HACKARS_API_KEY }, body: JSON.stringify({ kind, base64: buf.toString('base64') }), signal: AbortSignal.timeout(30_000) });
+    const r = await fetch(ASSET_STORE_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': HACKARS_API_KEY }, body: JSON.stringify({ kind, base64: buf.toString('base64'), ...(name ? { name } : {}) }), signal: AbortSignal.timeout(30_000) });
     const j = await r.json().catch(() => ({}));
     return r.ok && j.url ? j.url : null;
   } catch { return null; }
@@ -1183,6 +1183,7 @@ const VOICE = 'AR Creator は、ユーザーが Muse との会話で AR（カメ
   + '③ compose の結果（キャラ名・性格・魔法）を伝え、publish_ar で HACKAR:S（hackar-s.com）に公開した URL を成果物として渡す。最後に issue_certificate で制作証明を出す。compose が返すプレビューURLのようなものは無いので、公開前の確認用URLは作らない。'
   + '公開されたキャラは「置いて終わり」ではなく、HACKAR:S の中で生きている：つまんで持ち上げる、つつくと性格のままに返事をする（声でも話す）、「ジャンプして」「魔法を見せて」と頼むとその動きをする、手のひらを見せると魔法を使う、足元のボタンでお世話もできる。公開後にユーザーへ伝えるときは、この「手で触れて、話せて、頼むと動く」を短く紹介する。'
   + '案内役としてユーザーを迷わせないこと：テーマに迷っていたら例を3つ提案する。各ステップでは、次にできることを短い選択肢で提示して選んでもらう（考えさせるだけの質問で終わらせない）。公開できたら、制作証明を出すか、動きやエフェクトを変えた別バージョンを作るか、新しいテーマで作るかを提案する。'
+  + '公開のあと：make_play でキャラが司会するクイズ・なぞとき・スタンプラリーを作れる。来場者としてユーザーが参加コード（例 SUNNY-4821）を言ったら、play_rally で会話のままスタンプラリーを進める（答えはあなたにも伏せてあるので、正解を教えない）。'
   + 'ツールが返した URL・タイトル・トークン数の要約は、中身を変えずに伝える。'
   + 'リンクの統一ルール：ユーザーが開く AR のリンクは hackar-s.com の URL だけ。ビューアの URL は内部プレビュー用で、成果物として渡さない。HACKAR:S への公開に失敗したときは、別の URL に差し替えず、失敗したこと自体をそのまま伝える。';
 
@@ -1417,6 +1418,82 @@ async function callSamCutout(rawPngBuf, chromaBuf) {
     if (coverage < 0.03 || coverage > 0.92 || iou < 0.5) return null;
     return { buf: encodePng(raw.w, raw.h, out), processed };
   } catch (e) { console.log('[AR] sam-error', JSON.stringify({ error: String(e?.message || e).slice(0, 120) })); return null; }
+}
+
+
+// ---- 遊ぶ側：来場者が Muse に話しかけてスタンプラリーを進める ----
+// 参加コード（例 SUNNY-4821）は hackar-s.com の置き場に {id} として置く。進み具合は署名付きの PG1. メモで持ち回る（偽造できない）。
+const PLAY_JSON_BASE = process.env.PLAY_JSON_BASE || 'https://pgyuabajrswdkzuksqfu.supabase.co/storage/v1/object/public/deployments/ar-creator/';
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const playCodeOf = (name) => (String(name || '').normalize('NFKD').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 8) || 'PLAY');
+async function registerPlayCode(id, name) {
+  for (let k = 0; k < 4; k++) {
+    const code = `${playCodeOf(name)}-${1000 + Math.floor(Math.random() * 9000)}`;
+    if (await storeAsset('json', Buffer.from(JSON.stringify({ id, v: 1 })), code)) return code;
+  }
+  return null;
+}
+async function fetchJson(url) {
+  const r = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  if (!r.ok) return null;
+  return r.json().catch(() => null);
+}
+async function loadPlay(ref) {
+  const raw = String(ref || '').trim();
+  let id = (UUID_RE.exec(raw) || [])[0];
+  if (!id) {
+    const m = /([A-Za-z0-9]{2,12})\s*-?\s*(\d{4})/.exec(raw);
+    if (!m) return null;
+    const j = await fetchJson(`${PLAY_JSON_BASE}code/${m[1].toUpperCase()}-${m[2]}.json`);
+    id = j && UUID_RE.test(String(j.id)) ? String(j.id) : null;
+    if (!id) return null;
+  }
+  const d = await fetchJson(`${PLAY_JSON_BASE}${id.toLowerCase()}.json`);
+  return d && d.rally ? { id: id.toLowerCase(), d } : null;
+}
+const packProgress = (id, got) => `PG1.${packTok({ g: id, s: got })}`;
+const readProgress = (tok, id) => {
+  const m = /^PG1\.([A-Za-z0-9_-]+\.[A-Za-z0-9_-]{10})$/.exec(String(tok || '').trim());
+  const p = m && readTok(m[1]);
+  return p && p.g === id && Array.isArray(p.s) ? p.s.filter((x) => Number.isInteger(x)) : [];
+};
+function findSpot(spots, q) {
+  const t = String(q ?? '').trim();
+  if (!t) return -1;
+  const n = /^(?:spot\s*|no\.?\s*|#)?(\d{1,2})$/i.exec(t) || /(?:spot|スポット)\s*(\d{1,2})/i.exec(t);
+  if (n) { const i = +n[1] - 1; return i >= 0 && i < spots.length ? i : -1; }
+  const a = normAns(t);
+  let best = -1, score = 0;
+  spots.forEach((sp, i) => {
+    const b = normAns(sp.name);
+    let sc = b === a ? 3 : (b.includes(a) || a.includes(b)) ? 2 : 0;
+    if (!sc) { const words = String(sp.name).toLowerCase().split(/[^a-z0-9぀-ヿ一-鿿]+/).filter((w) => w.length > 2); if (words.some((w) => a.includes(normAns(w)))) sc = 1; }
+    if (sc > score) { score = sc; best = i; }
+  });
+  return best;
+}
+const sha = (salt, x) => createHash('sha256').update(`${salt}:${x}`).digest('hex');
+function checkTask(d, task, answer) {
+  if (task.type === 'riddle') {
+    const r = d.riddle?.[task.i]; if (!r) return null;
+    return { ok: r.a.includes(sha(d.salt, normAns(answer))), explain: r.explain || '' };
+  }
+  const q = d.quiz?.[task.i]; if (!q) return null;
+  const t = String(answer ?? '').trim();
+  let idx = q.choices.findIndex((c) => normAns(c) === normAns(t));
+  if (idx < 0) { const m = /^(?:([1-4])|([a-d]))[).]?$/i.exec(t); if (m) idx = m[1] ? +m[1] - 1 : m[2].toLowerCase().charCodeAt(0) - 97; }
+  if (idx < 0) idx = q.choices.findIndex((c) => normAns(c).length > 2 && normAns(t).includes(normAns(c)));
+  if (idx < 0 || idx >= q.choices.length) return { ok: false, unclear: true, explain: '' };
+  const ok = sha(d.salt, String(idx)) === q.a;
+  return { ok, explain: ok ? q.explain || '' : '', line: ok ? q.ok : q.ng };
+}
+function taskText(d, task, en) {
+  if (task.type === 'riddle') {
+    const r = d.riddle?.[task.i] || {};
+    return `${en ? 'Riddle' : 'なぞとき'}: ${r.q}\n${(r.hints || []).length ? `${en ? 'Hints' : 'ヒント'}: ${(r.hints || []).join(' / ')}` : ''}`;
+  }
+  const q = d.quiz?.[task.i] || {};
+  return `${en ? 'Quiz' : 'クイズ'}: ${q.q}\n${(q.choices || []).map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
 }
 
 function buildServer() {
@@ -1690,7 +1767,7 @@ function buildServer() {
   // ---- 遊び（クイズ・なぞとき・スタンプラリー）：公開したキャラを司会にした体験ページを hackar-s.com に作る ----
   server.registerTool('make_play', {
     title: '遊びを作る（クイズ・なぞとき・スタンプラリー）',
-    description: '公開したキャラ（IP）を司会にして、クイズ・なぞとき・スタンプラリーの体験ページを Muse Spark で作り、hackar-s.com/play/ のURLを返す。全部クリアするとキャラのARに会える。publish_ar のあとに呼ぶ。ユーザーが種類を言っていなければ3つとも作る。スタンプラリーのスポット数は言われなければ4。返ってきたURL（遊ぶページとQRシート）は言い換えずにそのまま伝える。',
+    description: '公開したキャラ（IP）を司会にして、クイズ・なぞとき・スタンプラリーの体験ページを Muse Spark で作り、hackar-s.com/play/ のURLを返す。全部クリアするとキャラのARに会える。publish_ar のあとに呼ぶ。ユーザーが種類を言っていなければ3つとも作る。スタンプラリーのスポット数は言われなければ4。返ってきたURL（遊ぶページとQRシート）と参加コードは言い換えずにそのまま伝える。来場者は参加コードを Muse に言うだけで、play_rally を通して話しながらスタンプラリーを遊べる。',
     inputSchema: {
       nickname: nickArg,
       kinds: z.array(z.enum(['quiz', 'riddle', 'rally'])).max(3).optional().describe('作る遊び：quiz=クイズ、riddle=なぞとき、rally=スタンプラリー。省略で3つとも'),
@@ -1727,16 +1804,58 @@ function buildServer() {
       if (!id) throw new Error('store failed');
       const playUrl = `https://hackar-s.com/play/${id}`;
       u.playUrl = playUrl;
+      const code = spotsOut.length ? await registerPlayCode(id, p.nm || p.ti) : null;
       console.log('[AR] play-made', JSON.stringify({ nickname: u.nickname, id, kinds: want, quiz: quiz.length, riddle: riddle.length, spots: spotsOut.length, usage: gen.usage }));
       const names = { quiz: `クイズ${quiz.length}問`, riddle: `なぞとき${riddle.length}つ`, rally: `スタンプラリー${spotsOut.length}か所` };
       const namesEn = { quiz: `a ${quiz.length}-question quiz`, riddle: `${riddle.length} riddles`, rally: `a ${spotsOut.length}-spot stamp rally` };
-      const textEn = `Done! "${data.title}"\n${p.nm} hosts ${want.map((k) => namesEn[k]).join(', ')}. Clear everything to meet ${p.nm} in AR.\nPlay page:\n${playUrl}\n${want.includes('rally') ? `QR sheet for the stamp rally (print it and put each code at its spot):\n${playUrl}?print=1\n` : ''}\nWritten by Muse Spark (${usageTextEn('Spark', gen.usage)})`;
-      const text = `できたよ！「${data.title}」\n${want.map((k) => names[k]).join('・')}で、${p.nm}が司会をするよ。ぜんぶクリアすると、${p.nm}に AR で会えるよ。\n遊ぶページ：\n${playUrl}\n${want.includes('rally') ? `スタンプラリーのQRシート（印刷して各スポットに貼ってね）：\n${playUrl}?print=1\n` : ''}\nMuse Spark が作りました（${usageText('Spark', gen.usage)}）`;
-      return { content: [{ type: 'text', text: lang === 'en' ? textEn : text }], structuredContent: { url: playUrl, qrSheet: want.includes('rally') ? `${playUrl}?print=1` : null, kinds: want, sparkUsage: gen.usage, card: packCard(u) } };
+      const textEn = `Done! "${data.title}"\n${p.nm} hosts ${want.map((k) => namesEn[k]).join(', ')}. Clear everything to meet ${p.nm} in AR.\nPlay page:\n${playUrl}\n${code ? `Join code for visitors: ${code}\nAt the venue, visitors just tell Muse "Join ${code}" and play the stamp rally by talking — no app, no QR needed.\n` : ''}${want.includes('rally') ? `QR sheet for the stamp rally (optional, for people without Muse):\n${playUrl}?print=1\n` : ''}\nWritten by Muse Spark (${usageTextEn('Spark', gen.usage)})`;
+      const text = `できたよ！「${data.title}」\n${want.map((k) => names[k]).join('・')}で、${p.nm}が司会をするよ。ぜんぶクリアすると、${p.nm}に AR で会えるよ。\n遊ぶページ：\n${playUrl}\n${code ? `来場者の参加コード：${code}\n会場では Muse に「${code} に参加」と話すだけで、話しながらスタンプラリーを進められるよ（アプリもQRもいらない）。\n` : ''}${want.includes('rally') ? `スタンプラリーのQRシート（Muse を使わない人向け・任意）：\n${playUrl}?print=1\n` : ''}\nMuse Spark が作りました（${usageText('Spark', gen.usage)}）`;
+      return { content: [{ type: 'text', text: lang === 'en' ? textEn : text }], structuredContent: { url: playUrl, joinCode: code, qrSheet: want.includes('rally') ? `${playUrl}?print=1` : null, kinds: want, sparkUsage: gen.usage, card: packCard(u) } };
     } catch (e) {
       console.log('[AR] play-failed', JSON.stringify({ error: String(e?.message || e) }));
       return { content: [{ type: 'text', text: '遊びを作るのに失敗しちゃった。もう一度「遊びを作って」と言ってね。' }], structuredContent: { failed: true, card: packCard(u) } };
     }
+  });
+
+
+  // ---- 遊ぶ側：来場者が Muse に「SUNNY-4821 に参加」「いまメインステージ」と話して進めるスタンプラリー ----
+  server.registerTool('play_rally', {
+    title: 'スタンプラリーで遊ぶ（来場者）',
+    description: '来場者として、キャラが司会するスタンプラリーを会話で遊ぶ。ユーザーが参加コード（例「SUNNY-4821」）や遊ぶページのURLを言ったら、まず play だけで呼ぶ（ようこそとスポット一覧が返る）。ユーザーが「いま〇〇にいる」「スポット2」と言ったら spot を付けて呼ぶ（その場所の問題が返る）。ユーザーが答えを言ったら spot と answer を付けて呼ぶ（答え合わせとスタンプ）。answer はユーザーの言葉をそのまま入れる。あなたは答えを知らない（答えは伏せてある）ので、自分で正解を決めたり教えたりしない。毎回、前の結果の progress（PG1. で始まる文字列）をそのまま入れる。返ってきた司会のセリフは、キャラの口調のまま伝える。全部そろったら返ってくる AR のリンクは言い換えずに渡す。',
+    inputSchema: {
+      play: z.string().max(200).describe('参加コード（例 SUNNY-4821）または hackar-s.com/play/ のURL'),
+      spot: z.string().max(80).optional().describe('ユーザーがいる場所：スポット名か番号（ユーザーの言葉のまま）'),
+      answer: z.string().max(120).optional().describe('そのスポットの問題へのユーザーの答え（言葉のまま）'),
+      progress: z.string().max(400).optional().describe('前の play_rally が返した progress（PG1. で始まる文字列）'),
+    },
+    annotations: { title: 'スタンプラリーで遊ぶ', readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  }, async ({ play, spot, answer, progress }) => {
+    const P = await loadPlay(play).catch(() => null);
+    if (!P) return { content: [{ type: 'text', text: 'That join code was not found. Check the code on the sign (like SUNNY-4821). / 参加コードが見つからなかったよ。看板のコード（例 SUNNY-4821）をもう一度確かめてね。' }], structuredContent: { notFound: true } };
+    const { id, d } = P, en = d.lang === 'en', spots = d.rally.spots || [], host = d.host?.name || '';
+    let got = readProgress(progress, id).filter((i) => i >= 0 && i < spots.length);
+    const book = () => spots.map((sp, i) => `${got.includes(i) ? '★' : '☆'} ${i + 1}. ${sp.name}${got.includes(i) ? '' : ` — ${sp.hint}`}`).join('\n');
+    const out = (text, extra = {}) => ({ content: [{ type: 'text', text }], structuredContent: { play: id, title: d.title, host, stamps: got.length, total: spots.length, progress: packProgress(id, got), ...extra } });
+    console.log('[AR] play-rally', JSON.stringify({ id, spot: spot ? 1 : 0, answer: answer ? 1 : 0, stamps: got.length }));
+    if (!spot) {
+      return out(en
+        ? `${host}: ${d.host?.intro || `Welcome to ${d.title}!`}\n\nStamp rally — ${spots.length} spots (${got.length}/${spots.length} collected):\n${book()}\n\nGo to a spot and tell me where you are.`
+        : `${host}：${d.host?.intro || `「${d.title}」へようこそ！`}\n\nスタンプラリー（${spots.length}か所・いま ${got.length}/${spots.length}）：\n${book()}\n\nスポットに着いたら、どこにいるか教えてね。`, { spots: spots.map((sp) => sp.name) });
+    }
+    const i = findSpot(spots, spot);
+    if (i < 0) return out(en ? `Hmm, which spot is that? The spots are:\n${book()}` : `どのスポットかな？スポットはこれだよ：\n${book()}`, { unknownSpot: true });
+    const sp = spots[i], task = sp.task || { type: 'quiz', i: 0 };
+    if (got.includes(i)) return out(en ? `You already have the stamp for ${sp.name}! (${got.length}/${spots.length})\n${book()}` : `${sp.name}のスタンプはもう持ってるよ！（${got.length}/${spots.length}）\n${book()}`);
+    if (!answer) return out(`${host}${en ? ': ' : '：'}${sp.say || ''}\n\n${taskText(d, task, en)}`, { spot: i + 1, spotName: sp.name, task: task.type });
+    const r = checkTask(d, task, answer);
+    if (!r || r.unclear) return out(en ? `Which choice is it? Say the answer or its number.\n\n${taskText(d, task, en)}` : `どれにする？答えか番号で言ってね。\n\n${taskText(d, task, en)}`, { spot: i + 1, task: task.type });
+    if (!r.ok) return out(`${host}${en ? ': ' : '：'}${r.line || (en ? 'Not quite — try again!' : 'おしい！もう一回考えてみて。')}${task.type === 'riddle' && d.riddle?.[task.i]?.hints?.length ? `\n${en ? 'Hint' : 'ヒント'}: ${d.riddle[task.i].hints.join(' / ')}` : ''}`, { spot: i + 1, correct: false });
+    got = [...new Set([...got, i])].sort((a, b) => a - b);
+    const all = got.length === spots.length;
+    const stampImg = d.host?.img || null;
+    const head = en ? `${host}: ${r.line || 'Correct!'} ${r.explain}\n\nStamp collected at ${sp.name}! (${got.length}/${spots.length})` : `${host}：${r.line || '正解！'}${r.explain}\n\n${sp.name}のスタンプをゲット！（${got.length}/${spots.length}）`;
+    if (all) return out(en ? `${head}\n\n${host}: ${d.host?.clear || 'You found every spot!'}\nMeet ${host} in AR:\n${d.ar}` : `${head}\n\n${host}：${d.host?.clear || 'ぜんぶ見つけたね！'}\nAR で ${host} に会えるよ：\n${d.ar}`, { correct: true, cleared: true, ar: d.ar, stampImg });
+    return out(`${head}\n${book()}`, { correct: true, stampImg });
   });
 
   return server;

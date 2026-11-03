@@ -48,6 +48,8 @@ If the model API is unavailable, composition falls back to a deterministic templ
 | `publish_ar` | Creates the real HACKAR:S project (GLB + Ultra spell + Hand Play + expressions) and returns the hackar-s.com URL — the only deliverable URL |
 | `remix_ar` | Same character, different spell; then publish again |
 | `issue_certificate` | Issues the certificate page (one per creator) with model usage and the work's URL |
+| `make_play` | Muse Spark writes a quiz, riddles and a stamp rally hosted by the published character; stored at hackar-s.com/play/<id>, plus a short **join code** (e.g. `SUNNY-4821`) |
+| `play_rally` | The visitor side, inside Muse: say the join code, say where you are, answer the character's question — Muse checks it and hands out the stamp. Answers are salted hashes, so Muse itself can't see or leak them; progress is a signed token. Clear every spot and the character's AR link arrives |
 
 ## Setup
 
