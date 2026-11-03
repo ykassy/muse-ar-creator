@@ -4,9 +4,11 @@
 // panel over its head and four floating buttons - food / play / talk / pet. Press a button by tapping
 // it on screen, or with your hand: point with the index finger and touch it with the fingertip.
 
+import { C as CZ, font as czFont, loadFont, roundRect as czRound, card as czCard, tag as czTag, leaf as czLeaf, gauge as czGauge } from './cozy.js?v=20261104k'
+
 const ICONS = { food: 1, play: 1, talk: 1, pet: 1 }   // ids of the floating buttons (drawn as pictograms)
 const FOODS = ['🍎', '🍙', '🍪', '🍓', '🍩']
-const COLORS = { food: ['#ffb347', '#ff7a1a'], play: ['#7ee08a', '#2fb457'], talk: ['#6cc4ff', '#2f86e8'], pet: ['#ff9cc4', '#ff4f8f'] }
+const COLORS = { food: ['#ffc59a', '#f39457'], play: ['#a6dc85', '#6fb552'], talk: ['#9dd6f2', '#5aaedb'], pet: ['#f9b8cb', '#ea7fa0'] }
 const LABELS = {
   ja: { food: 'ごはん', play: 'あそぶ', talk: 'おはなし', pet: 'なでる', hunger: 'おなか', mood: 'ごきげん', lv: 'Lv' },
   en: { food: 'Food', play: 'Play', talk: 'Talk', pet: 'Pet', hunger: 'Food', mood: 'Mood', lv: 'Lv' },
@@ -45,28 +47,30 @@ export function createPet(api) {
   // drawn as page elements above every canvas: the spell layer is its own canvas over the AR view and
   // would otherwise wash over them.
   const uiStyle = { position: 'fixed', left: '0', top: '0', transform: 'translate(-50%,-50%)', zIndex: 55, display: 'none', willChange: 'transform' }
-  const pc = document.createElement('canvas'); pc.width = 512; pc.height = 200
+  const pc = document.createElement('canvas'); pc.width = 512; pc.height = 236
   Object.assign(pc.style, uiStyle, { pointerEvents: 'none' }); document.body.appendChild(pc)
   const ptex = { needsUpdate: false }
   const panel = new THREE.Object3D()
   function drawPanel() {
     const x = pc.getContext('2d')
-    x.clearRect(0, 0, 512, 200)
-    x.fillStyle = 'rgba(255,255,255,0.88)'; roundRect(x, 6, 6, 500, 188, 40); x.fill()
-    x.strokeStyle = 'rgba(255,111,163,0.9)'; x.lineWidth = 5; x.stroke()
-    x.fillStyle = '#ff5c8a'; x.font = font(900, 40); x.fillText(`${L.lv}${st.level}`, 30, 58)
-    x.fillStyle = '#333'; x.font = font(800, 34); x.fillText(name.slice(0, 9), 128, 56)
-    // XP bar
-    const need = xpFor(st.level), k = Math.min(1, st.xp / need)
-    x.fillStyle = '#f1e7ee'; roundRect(x, 30, 72, 452, 14, 7); x.fill()
-    x.fillStyle = '#ff8fb5'; roundRect(x, 30, 72, Math.max(14, 452 * k), 14, 7); x.fill()
-    const bar = (y, label, v, col) => {
-      x.fillStyle = '#555'; x.font = font(800, 28); x.fillText(label, 30, y + 22)
-      x.fillStyle = '#eee'; roundRect(x, 170, y, 312, 26, 13); x.fill()
-      x.fillStyle = v < 30 ? '#ff5470' : col; roundRect(x, 170, y, Math.max(26, 312 * v / 100), 26, 13); x.fill()
+    x.clearRect(0, 0, 512, 236)
+    czCard(x, 8, 30, 496, 196, 44)
+    // name tag over the card's top-left corner, level on a leaf at the right
+    czTag(x, 40 + Math.min(150, (name.length || 1) * 17), 32, name.slice(0, 9) || '…', 28)
+    czLeaf(x, 432, 84, 52)
+    x.fillStyle = '#fff'; x.font = czFont(900, 30); x.textAlign = 'center'; x.textBaseline = 'middle'
+    x.strokeStyle = CZ.leafDark; x.lineWidth = 6; x.strokeText(`${L.lv}${st.level}`, 432, 86); x.fillText(`${L.lv}${st.level}`, 432, 86)
+    // friendship XP: a thin leafy bar
+    const need = xpFor(st.level)
+    czGauge(x, 40, 76, 330, 16, st.xp / need, CZ.leaf, CZ.leafDark)
+    const row = (y, icon, label, v, c0, c1) => {
+      x.textAlign = 'left'; x.textBaseline = 'middle'
+      x.font = '30px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; x.fillText(icon, 38, y + 2)
+      x.fillStyle = CZ.ink; x.font = czFont(800, 26); x.fillText(label, 80, y + 2)
+      czGauge(x, 214, y - 15, 258, 30, v / 100, v < 30 ? '#ff9a9a' : c0, v < 30 ? '#e86060' : c1)
     }
-    bar(104, L.hunger, st.hunger, '#ffb347')
-    bar(146, L.mood, st.mood, '#5ec8ff')
+    row(126, '🍎', L.hunger, st.hunger, CZ.peach, CZ.peachDark)
+    row(178, '🌼', L.mood, st.mood, CZ.sky, CZ.skyDark)
     ptex.needsUpdate = true
   }
   drawPanel()
@@ -109,24 +113,32 @@ export function createPet(api) {
     const x = b.c.getContext('2d')
     x.clearRect(0, 0, 256, 256)
     const [c0, c1] = COLORS[b.id]
-    x.save(); x.shadowColor = 'rgba(0,0,0,0.35)'; x.shadowBlur = 14; x.shadowOffsetY = 5
-    const g = x.createLinearGradient(0, 30, 0, 200); g.addColorStop(0, c0); g.addColorStop(1, c1)
-    x.fillStyle = g; x.beginPath(); x.arc(128, 112, 86, 0, Math.PI * 2); x.fill(); x.restore()
-    x.lineWidth = 7; x.strokeStyle = '#fff'; x.beginPath(); x.arc(128, 112, 86, 0, Math.PI * 2); x.stroke()
-    if (b.aim) {                 // the fingertip is on it: glow so you know what you are about to press
-      x.lineWidth = 12; x.strokeStyle = 'rgba(255,255,255,0.9)'; x.beginPath(); x.arc(128, 112, 101, 0, Math.PI * 2); x.stroke()
+    const S = 172, X0 = (256 - S) / 2, Y0 = 18, R = 52
+    if (b.aim || b.hover > 0) {   // touched: a warm glow around the icon
+      x.save(); x.shadowColor = CZ.sun; x.shadowBlur = 26; x.fillStyle = CZ.sun
+      czRound(x, X0 - 8, Y0 - 8, S + 16, S + 16, R + 8); x.fill(); x.restore()
     }
-    if (b.hover > 0) {           // the short touch before it counts
-      x.lineWidth = 12; x.strokeStyle = '#ffe45c'; x.lineCap = 'round'
-      x.beginPath(); x.arc(128, 112, 101, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, b.hover)); x.stroke()
+    x.save(); x.shadowColor = CZ.shadow; x.shadowBlur = 14; x.shadowOffsetY = 7
+    x.fillStyle = '#fff'; czRound(x, X0 - 7, Y0 - 7, S + 14, S + 14, R + 6); x.fill(); x.restore()
+    const g = x.createLinearGradient(0, Y0, 0, Y0 + S); g.addColorStop(0, c0); g.addColorStop(1, c1)
+    x.fillStyle = g; czRound(x, X0, Y0, S, S, R); x.fill()
+    x.fillStyle = 'rgba(255,255,255,0.28)'; czRound(x, X0 + 14, Y0 + 10, S - 28, S * 0.36, R * 0.7); x.fill()   // soft gloss
+    if (b.hover > 0) {            // the short touch before it counts
+      x.lineWidth = 9; x.strokeStyle = CZ.sun; x.lineCap = 'round'
+      x.beginPath(); x.arc(128, Y0 + S / 2, S / 2 + 2, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, b.hover)); x.stroke()
     }
-    pictogram(x, b.id)
-    x.font = font(900, 32); x.textAlign = 'center'; x.textBaseline = 'middle'
-    const w = x.measureText(L[b.id]).width + 30
-    x.fillStyle = 'rgba(30,30,45,0.78)'; roundRect(x, 128 - w / 2, 212, w, 40, 20); x.fill()
-    x.fillStyle = '#fff'; x.fillText(L[b.id], 128, 233)
+    x.save(); x.translate(0, Y0 + S / 2 - 112); x.shadowColor = 'rgba(80,50,30,0.25)'; x.shadowBlur = 4; x.shadowOffsetY = 3
+    pictogram(x, b.id); x.restore()
+    // label on a cream pill
+    x.font = czFont(900, 30); x.textAlign = 'center'; x.textBaseline = 'middle'
+    const w = x.measureText(L[b.id]).width + 34
+    x.save(); x.shadowColor = CZ.shadow; x.shadowBlur = 6; x.shadowOffsetY = 3
+    x.fillStyle = CZ.paper; czRound(x, 128 - w / 2, 206, w, 44, 22); x.fill(); x.restore()
+    x.fillStyle = CZ.ink; x.fillText(L[b.id], 128, 229)
     b.tex.needsUpdate = true
   }
+  // redraw once the rounded font has arrived
+  loadFont().then(() => { drawPanel(); buttons.forEach(drawButton) })
 
   // --- layout: buttons in a row in front of the character's knees, panel over its head ----------
   const f = new THREE.Vector3(), right = new THREE.Vector3(), base = new THREE.Vector3()
@@ -141,7 +153,7 @@ export function createPet(api) {
     const box = api.getBox && api.getBox()
     const top = box ? box.max.y : g.position.y + H
     panel.position.set((box ? (box.min.x + box.max.x) / 2 : base.x), top + H * 0.2, (box ? (box.min.z + box.max.z) / 2 : base.z))
-    panel.scale.set(H * 0.85, H * 0.85 * 200 / 512, 1)
+    panel.scale.set(H * 1.05, H * 1.05 * 236 / 512, 1)
     const n = buttons.length, gap = H * 0.36
     buttons.forEach((b, i) => {
       const off = (i - (n - 1) / 2) * gap
@@ -166,7 +178,7 @@ export function createPet(api) {
     el.style.transform = `translate(${r.left + (p.x + 1) / 2 * r.width}px, ${r.top + (1 - p.y) / 2 * r.height}px) translate(-50%,-50%)`
   }
   function syncDom() {
-    placeEl(pc, panel, panel.scale.x, 200 / 512)
+    placeEl(pc, panel, panel.scale.x, 236 / 512)
     for (const b of buttons) placeEl(b.c, b.sp, b.sp.scale.x, 1)
   }
   function screenOf(obj) {

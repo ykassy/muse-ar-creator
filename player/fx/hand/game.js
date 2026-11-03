@@ -4,6 +4,8 @@
 // hearts raise the friendship level, and level-ups get a bigger celebration. A wish nobody grants in
 // 30 s is swapped for another one. Everything it needs comes from hand-play.js through `api`.
 
+import { C, FONT, loadFont } from './cozy.js?v=20261104k'
+
 const WISHES = {
   lift: { ja: '高いところに連れてって！', en: 'Lift me up high!' },
   ring: { ja: 'あの光の輪まで運んで！', en: 'Carry me to the glowing ring!' },
@@ -19,45 +21,62 @@ const LEVELS = [3, 6, 10, 15, 21]
 const GIVE_UP_S = 30
 
 const HEART = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="#ff4d7a" d="M12 21s-7.5-4.6-9.6-9.1C.9 8.6 2.9 4.8 6.6 4.5c2.1-.2 3.9 1 5.4 2.9 1.5-1.9 3.3-3.1 5.4-2.9 3.7.3 5.7 4.1 4.2 7.4C19.5 16.4 12 21 12 21z"/></svg>'
+// cozy look (cozy.js): cream paper, cocoa ink, rounded font, name tags, stitched edges
+const F = FONT
 const CSS = `
-.hp-hud{position:fixed;z-index:62;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:7px 14px 7px 10px;border-radius:20px;
-  background:rgba(20,20,28,.42);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);color:#fff;font:700 15px/1 -apple-system,"Hiragino Sans",sans-serif;pointer-events:none;transition:transform .2s}
-.hp-hud .lv{font-size:12px;font-weight:600;opacity:.85;margin-left:4px}
+.hp-hud{position:fixed;z-index:62;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:8px 16px 8px 12px;border-radius:999px;
+  background:${C.paper};color:${C.ink};font:900 16px/1 ${F};box-shadow:0 6px 16px ${C.shadow};pointer-events:none;transition:transform .2s}
+.hp-hud .lv{font-size:12px;font-weight:800;opacity:.85;margin-left:4px}
 .hp-hud.pop{transform:translateX(-50%) scale(1.18)}
-.hp-wish{position:fixed;z-index:59;transform:translate(-50%,-100%);max-width:70vw;padding:9px 14px;border-radius:16px;background:#ffe45c;color:#3a2a00;
-  font:700 15px/1.35 -apple-system,"Hiragino Sans",sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.25);pointer-events:none;opacity:0;transition:opacity .25s;white-space:nowrap}
-.hp-wish:after{content:"";position:absolute;left:50%;bottom:-7px;margin-left:-7px;border:7px solid transparent;border-bottom:0;border-top-color:#ffe45c}
-.hp-wish .bar{position:absolute;left:10px;right:10px;bottom:3px;height:3px;border-radius:2px;background:rgba(58,42,0,.25);overflow:hidden}
-.hp-wish .bar i{display:block;height:100%;background:#3a2a00;opacity:.55}
+.hp-wish{position:fixed;z-index:59;transform:translate(-50%,-100%);max-width:76vw;padding:20px 22px 18px;border-radius:26px;background:${C.paper};color:${C.ink};
+  font:800 16px/1.45 ${F};box-shadow:0 8px 22px ${C.shadow};pointer-events:none;opacity:0;transition:opacity .25s;white-space:nowrap}
+.hp-wish:before{content:"";position:absolute;inset:6px;border:2.5px dashed ${C.stitch};border-radius:21px}
+.hp-wish:after{content:"";position:absolute;left:50%;bottom:-11px;margin-left:-11px;border:11px solid transparent;border-bottom:0;border-top-color:${C.paper}}
+.hp-wish .tagn{position:absolute;left:16px;top:-14px;transform:rotate(-4deg);background:${C.tag};color:#fff;font:900 13px/1 ${F};padding:7px 13px;border-radius:999px;box-shadow:0 3px 8px ${C.shadow}}
+.hp-wish .nx{position:absolute;right:14px;bottom:6px;color:${C.tag};font-size:11px;animation:hpnx 1s infinite}
+@keyframes hpnx{0%,100%{transform:translateY(0);opacity:1}50%{transform:translateY(3px);opacity:.45}}
+.hp-wish .bar{position:absolute;left:24px;right:36px;bottom:9px;height:4px;border-radius:2px;background:${C.line};overflow:hidden}
+.hp-wish .bar i{display:block;height:100%;background:${C.leaf}}
 .hp-heart{position:fixed;z-index:63;pointer-events:none;transform:translate(-50%,-50%);transition:left .9s cubic-bezier(.5,0,.75,0),top .9s cubic-bezier(.3,1.4,.6,1),opacity .9s}
-.hp-start{position:fixed;z-index:62;display:flex;align-items:center;gap:6px;padding:8px 14px 8px 11px;border-radius:18px;background:linear-gradient(135deg,#ff6fa3,#ffb36b);color:#fff;
-  font:800 14px/1 -apple-system,"Hiragino Sans",sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
-.hp-start:active{transform:scale(.95)}
-.hp-timer{position:fixed;z-index:63;transform:translateX(-50%);width:min(78vw,340px);padding:9px 14px 11px;border-radius:18px;background:rgba(20,20,28,.55);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  color:#fff;font:800 15px/1 -apple-system,"Hiragino Sans",sans-serif;pointer-events:none;display:none}
-.hp-timer .row{display:flex;justify-content:space-between;align-items:baseline}
-.hp-timer .sec{font-size:26px}.hp-timer .sc{font-size:22px;color:#ffe45c}
-.hp-timer .bar{margin-top:8px;height:7px;border-radius:4px;background:rgba(255,255,255,.22);overflow:hidden}
-.hp-timer .bar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#5ef0c2,#ffe45c);transition:background .3s}
-.hp-timer.hurry .bar i{background:#ff5470}.hp-timer.hurry .sec{color:#ff7a8e}
-.hp-plus{position:fixed;z-index:63;pointer-events:none;transform:translate(-50%,-50%);color:#ffe45c;font:900 26px/1 -apple-system,"Hiragino Sans",sans-serif;text-shadow:0 2px 8px rgba(0,0,0,.4);transition:transform .7s ease-out,opacity .7s}
-.hp-result{position:fixed;z-index:65;left:50%;top:50%;transform:translate(-50%,-50%);width:min(82vw,330px);padding:20px 18px 16px;border-radius:24px;background:rgba(255,255,255,.96);color:#222;
-  font:600 14px/1.4 -apple-system,"Hiragino Sans",sans-serif;box-shadow:0 16px 44px rgba(0,0,0,.35);text-align:center;display:none}
-.hp-result h3{margin:0 0 4px;font-size:16px;color:#888}.hp-result .big{font-size:46px;font-weight:900;color:#ff5c8a;line-height:1.1}
-.hp-result ol{list-style:none;margin:12px 0 14px;padding:0;text-align:left}
-.hp-result li{display:flex;justify-content:space-between;padding:6px 10px;border-radius:10px}
-.hp-result li.me{background:#fff2a8;font-weight:800}
-.hp-result .btns{display:flex;gap:8px;justify-content:center}
-.hp-result button{border:0;border-radius:14px;padding:10px 16px;font:800 14px/1 -apple-system,"Hiragino Sans",sans-serif;cursor:pointer}
-.hp-result .again{background:linear-gradient(135deg,#ff6fa3,#ffb36b);color:#fff}.hp-result .close{background:#eee;color:#555}
-.hp-banner{position:fixed;z-index:64;left:50%;top:40%;transform:translate(-50%,-50%) scale(.6);padding:14px 22px;border-radius:22px;background:linear-gradient(135deg,#ff6fa3,#ffb36b);
-  color:#fff;font:800 22px/1.2 -apple-system,"Hiragino Sans",sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.3);opacity:0;pointer-events:none;transition:opacity .3s,transform .35s cubic-bezier(.3,1.6,.5,1)}
+.hp-start{position:fixed;z-index:62;display:flex;align-items:center;gap:6px;padding:10px 16px 10px 13px;border-radius:999px;background:${C.leaf};color:#fff;
+  font:900 14px/1 ${F};box-shadow:0 4px 0 ${C.leafDark},0 8px 16px ${C.shadow};cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+.hp-start:active{transform:translateY(2px)}
+.hp-timer{position:fixed;z-index:63;transform:translateX(-50%);width:min(78vw,340px);padding:12px 18px 14px;border-radius:24px;background:${C.paper};
+  color:${C.ink};font:900 15px/1 ${F};box-shadow:0 8px 20px ${C.shadow};pointer-events:none;display:none}
+.hp-timer:before{content:"";position:absolute;inset:5px;border:2px dashed ${C.stitch};border-radius:19px}
+.hp-timer .row{display:flex;justify-content:space-between;align-items:baseline;position:relative}
+.hp-timer .sec{font-size:26px}.hp-timer .sc{font-size:24px;color:${C.peachDark}}
+.hp-timer .bar{position:relative;margin-top:9px;height:12px;border-radius:6px;background:${C.line};overflow:hidden}
+.hp-timer .bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,${C.leaf},${C.sun});transition:background .3s}
+.hp-timer.hurry .bar i{background:${C.pinkDark}}.hp-timer.hurry .sec{color:${C.pinkDark}}
+.hp-plus{position:fixed;z-index:63;pointer-events:none;transform:translate(-50%,-50%);color:${C.sun};font:900 28px/1 ${F};
+  -webkit-text-stroke:5px ${C.inkDark};paint-order:stroke fill;text-shadow:0 3px 0 rgba(0,0,0,.15);transition:transform .7s ease-out,opacity .7s}
+.hp-result{position:fixed;z-index:65;left:50%;top:50%;transform:translate(-50%,-50%);width:min(84vw,340px);padding:30px 22px 20px;border-radius:30px;background:${C.paper};color:${C.ink};
+  font:700 15px/1.4 ${F};box-shadow:0 16px 40px ${C.shadow};text-align:center;display:none}
+.hp-result:before{content:"";position:absolute;inset:8px;border:2.5px dashed ${C.stitch};border-radius:23px;pointer-events:none}
+.hp-result h3{margin:0 0 4px;font-size:15px;color:${C.ink};opacity:.75;font-weight:800}
+.hp-result .big{font-size:54px;font-weight:900;color:${C.sun};line-height:1.1;-webkit-text-stroke:7px ${C.inkDark};paint-order:stroke fill}
+.hp-result ol{list-style:none;margin:10px 0 16px;padding:0;text-align:left;position:relative}
+.hp-result li{display:flex;justify-content:space-between;padding:7px 12px;border-radius:12px;font-weight:800}
+.hp-result li:nth-child(odd){background:${C.paper2}}
+.hp-result li.me{background:${C.sun};color:${C.inkDark}}
+.hp-result .btns{display:flex;gap:10px;justify-content:center;position:relative}
+.hp-result button{border:0;border-radius:999px;padding:12px 20px;font:900 15px/1 ${F};cursor:pointer}
+.hp-result .again{background:${C.leaf};color:#fff;box-shadow:0 4px 0 ${C.leafDark}}.hp-result .close{background:${C.paper2};color:${C.ink};box-shadow:0 4px 0 ${C.line}}
+.hp-result .send{box-shadow:0 4px 0 ${C.skyDark}}
+.hp-result .reg,.hp-result .msg{position:relative}
+.hp-banner{position:fixed;z-index:64;left:50%;top:40%;transform:translate(-50%,-50%) scale(.6);padding:16px 28px;border-radius:999px;background:${C.sun};
+  color:${C.inkDark};font:900 24px/1.2 ${F};box-shadow:0 6px 0 ${C.sunDark},0 14px 30px ${C.shadow};opacity:0;pointer-events:none;transition:opacity .3s,transform .35s cubic-bezier(.3,1.6,.5,1)}
 `
 
 export function createGame(api) {
   const { THREE, scene, getCamera, canvas, group, getRect, getBox, state, emote, moves, ov = {}, dbg = () => {} } = api
   const lang = ov.talkLang === 'en' ? 'en' : 'ja'
   const T = (o) => o[lang]
+  loadFont()
+  const nameTag = String(ov.talkName || '').replace(/[&<>"']/g, '')
+  // dialogue card: the character's name on a tag, the line, a blinking ▼ (and the wish's time bar)
+  const cardHTML = (text, bar) => `${nameTag ? `<span class="tagn">${nameTag}</span>` : ''}${text}${bar ? '<span class="bar"><i></i></span>' : ''}<span class="nx">▼</span>`
   let hearts = 0, level = 0, wish = null, wishT = 0, gap = 4, last = '', voiceOK = false, pet = null
 
   if (!document.getElementById('hp-game-css')) {
@@ -244,7 +263,7 @@ export function createGame(api) {
     for (const b of bubbles) b.sprite.removeFromParent()
     bubbles.length = 0
   }
-  function say(text) { card.innerHTML = text; card.style.opacity = '1' }
+  function say(text) { card.innerHTML = cardHTML(text); card.style.opacity = '1' }
   function shoot(px, py) {
     const cam = getCamera(), g = group(), s = state()
     if (!cam || !g) return
@@ -281,8 +300,8 @@ export function createGame(api) {
         if (Math.abs(chase.target.clone().project(cam).x) < lim) sideOK = true
         else sign = -sign
       }
-      if (sideOK) { setTimeout(() => moves.play('dodge'), 60); setTimeout(() => popText(lang === 'en' ? 'Dodge!' : 'ひょいっ！', '#7fe7ff'), 120) }
-      else { chase.target.copy(g.position); moves.play('hopOver'); setTimeout(() => popText(lang === 'en' ? 'Jump!' : 'ジャンプ！', '#7fe7ff'), 120) }
+      if (sideOK) { setTimeout(() => moves.play('dodge'), 60); setTimeout(() => popText(lang === 'en' ? 'Dodge!' : 'ひょいっ！', C.sky), 120) }
+      else { chase.target.copy(g.position); moves.play('hopOver'); setTimeout(() => popText(lang === 'en' ? 'Jump!' : 'ジャンプ！', C.sky), 120) }
       chase.dodge = 0.3; chase.lastDodge = chase.t; chase.dodges = (chase.dodges || 0) + 1
       if (Math.random() < 0.6) setTimeout(() => speak(lang === 'en' ? 'Missed!' : 'はずれ〜！'), 250)
     }
@@ -319,7 +338,7 @@ export function createGame(api) {
         if (box && box.distanceToPoint(b.sprite.position) < b.size * 0.4) {
           b.done = true; b.life = 0
           burst(b.sprite.position, b.size)
-          popText(lang === 'en' ? 'HIT!' : 'ヒット！', '#ffe45c')
+          popText(lang === 'en' ? 'HIT!' : 'ヒット！', C.sun)
           chase.hits++
           emote('surprised', 900)
           moves.play('dizzy')
@@ -400,9 +419,9 @@ export function createGame(api) {
     const L = (ja, en) => (lang === 'en' ? en : ja)
     const rows = (list, mine) => list.map((e, i) => `<li class="${e.id && e.id === mine ? 'me' : ''}"><span>${i + 1}. ${esc(e.name || L('ゲスト', 'Guest'))}</span><b>${e.score}</b></li>`).join('')
     result.innerHTML = `<h3>${L('スコア', 'Your score')}</h3><div class="big">${score}</div>`
-      + `<div class="reg" style="display:flex;gap:6px;margin:10px 0 2px"><input maxlength="10" placeholder="${L('なまえ', 'Name')}" value="${esc(savedName)}" style="flex:1;min-width:0;border:1px solid #ddd;border-radius:12px;padding:9px 10px;font:600 16px -apple-system,'Hiragino Sans',sans-serif">`
-      + `<button class="send" style="background:#3a7bff;color:#fff">${L('ランキングに登録', 'Submit')}</button></div>`
-      + `<div class="msg" style="min-height:18px;font-size:13px;color:#888"></div>`
+      + `<div class="reg" style="display:flex;gap:6px;margin:10px 0 2px"><input maxlength="10" placeholder="${L('なまえ', 'Name')}" value="${esc(savedName)}" style="flex:1;min-width:0;border:2.5px solid ${C.line};background:#fff;color:${C.ink};border-radius:999px;padding:10px 14px;font:800 16px ${FONT}">`
+      + `<button class="send" style="background:${C.sky};color:#fff">${L('ランキングに登録', 'Submit')}</button></div>`
+      + `<div class="msg" style="min-height:18px;font-size:13px;color:${C.ink};opacity:.8"></div>`
       + `<h3 style="margin-top:6px">${L('みんなのランキング', 'Ranking')}</h3><ol class="list"><li><span>…</span></li></ol>`
       + `<div class="btns"><button class="again">${L('もう一回', 'Play again')}</button><button class="close">${L('とじる', 'Close')}</button></div>`
     const listEl = result.querySelector('.list'), msg = result.querySelector('.msg'), send = result.querySelector('.send'), input = result.querySelector('input')
@@ -493,7 +512,7 @@ export function createGame(api) {
       ringG.visible = true
     }
     if (k === 'chase') startChase()
-    card.innerHTML = `${T(WISHES[k])}<span class="bar"><i></i></span>`
+    card.innerHTML = cardHTML(T(WISHES[k]), true)
     card.style.opacity = '1'
     emote('surprised', 1200)
     speak(T(WISHES[k]))
@@ -588,7 +607,7 @@ export function createGame(api) {
     get hearts() { return hearts }, get wish() { return wish }, get chasing() { return chase.on || ch.on },
     // the pet takes over the hearts HUD and the start button; these let it talk through the game's card
     setPet(p) { pet = p; hud.style.display = 'none'; startBtn.style.display = 'none'; gap = 20 },
-    say(text, ms = 3500) { card.innerHTML = text; card.style.opacity = '1'; speak(text); clearTimeout(this._sayT); this._sayT = setTimeout(() => { if (!wish) card.style.opacity = '0' }, ms) },
+    say(text, ms = 3500) { card.innerHTML = cardHTML(text); card.style.opacity = '1'; speak(text); clearTimeout(this._sayT); this._sayT = setTimeout(() => { if (!wish) card.style.opacity = '0' }, ms) },
     pop(text, color = '#ffe45c') { popText(text, color) },
     celebrate(lv) { chime(true); setTimeout(() => { moves.play('bigJump'); showBanner(lang === 'en' ? `Level ${lv}! It grew!` : `レベル${lv}！おおきくなった！`) }, 600); if (window.__ultraFx) window.__ultraFx.cast(); speak(lang === 'en' ? 'Level up! I grew!' : 'レベルアップ！おおきくなったよ！') },
     get score() { return ch.score }, get dodges() { return chase.dodges || 0 }, get challenge() { return ch.on }, startChallenge,

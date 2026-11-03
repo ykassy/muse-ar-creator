@@ -1,3 +1,5 @@
+import { C, FONT, loadFont } from './cozy.js?v=20261104k'
+
 // Talk: a talk button fixed on screen (also: poke the character with the hand, or tap it) -> the
 // character turns to you and listens until you stop speaking, then answers with a speech bubble and
 // the device voice. The button shows every state: idle / listening (live mic level + time left) /
@@ -54,14 +56,24 @@ export function createTalk({ THREE, getCamera, canvas, content, getRect, ov = {}
     const st = document.createElement('style'); st.id = 'hp-talk-css'; st.textContent = CSS; document.head.appendChild(st)
   }
 
-  // bubble over the character's head (the character's reply)
+  // the character's reply: a cozy dialogue card with its name on a tag and a blinking ▼
+  loadFont()
+  if (!document.getElementById('hp-talk-cozy')) {
+    const st = document.createElement('style'); st.id = 'hp-talk-cozy'
+    st.textContent = `.hp-say{position:fixed;z-index:60;max-width:76vw;padding:20px 22px 18px;border-radius:26px;background:${C.paper};color:${C.ink};font:800 16px/1.5 ${FONT};
+      box-shadow:0 8px 22px ${C.shadow};transform:translate(-50%,-100%);pointer-events:none;opacity:0;transition:opacity .2s}
+      .hp-say:before{content:"";position:absolute;inset:6px;border:2.5px dashed ${C.stitch};border-radius:21px}
+      .hp-say:after{content:"";position:absolute;left:50%;bottom:-11px;margin-left:-11px;border:11px solid transparent;border-bottom:0;border-top-color:${C.paper}}
+      .hp-say .tagn{position:absolute;left:16px;top:-14px;transform:rotate(-4deg);background:${C.tag};color:#fff;font:900 13px/1 ${FONT};padding:7px 13px;border-radius:999px;box-shadow:0 3px 8px ${C.shadow}}
+      .hp-say .nx{position:absolute;right:14px;bottom:6px;color:${C.tag};font-size:11px;animation:hpnx2 1s infinite}
+      @keyframes hpnx2{0%,100%{transform:translateY(0);opacity:1}50%{transform:translateY(3px);opacity:.45}}
+      .hp-heard{background:${C.paper}!important;color:${C.ink}!important;font:800 13px/1.3 ${FONT}!important;box-shadow:0 4px 12px ${C.shadow};border-radius:999px!important;backdrop-filter:none!important}`
+    document.head.appendChild(st)
+  }
   const bubble = document.createElement('div')
-  Object.assign(bubble.style, {
-    position: 'fixed', zIndex: 60, maxWidth: '72vw', padding: '10px 14px', borderRadius: '18px', background: 'rgba(255,255,255,0.94)',
-    color: '#1d1d1f', font: '600 15px/1.45 -apple-system, "Hiragino Sans", sans-serif', boxShadow: '0 6px 24px rgba(0,0,0,0.25)',
-    transform: 'translate(-50%, -100%)', pointerEvents: 'none', opacity: '0', transition: 'opacity .2s',
-  })
+  bubble.className = 'hp-say'
   document.body.appendChild(bubble)
+  const tagName = String(name).replace(/[&<>"']/g, '')
 
   // the talk button, fixed above the shutter, with what you said shown just above it
   const wrap = document.createElement('div'); wrap.className = 'hp-talk'
@@ -117,7 +129,10 @@ export function createTalk({ THREE, getCamera, canvas, content, getRect, ov = {}
     bubble.style.top = y + 'px'
   }
   const say = (text, ms) => {
-    bubble.textContent = text
+    bubble.innerHTML = ''
+    if (text && tagName) { const t = document.createElement('span'); t.className = 'tagn'; t.textContent = tagName; bubble.appendChild(t) }
+    bubble.appendChild(document.createTextNode(text || ''))
+    if (text) { const n = document.createElement('span'); n.className = 'nx'; n.textContent = '▼'; bubble.appendChild(n) }
     bubble.style.opacity = text ? '1' : '0'
     clearTimeout(say._t)
     if (ms) say._t = setTimeout(() => { bubble.style.opacity = '0' }, ms)

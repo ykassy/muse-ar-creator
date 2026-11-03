@@ -169,7 +169,7 @@ export async function start(opts) {
   // talk: the talk button (talk.js). A tap anywhere also unlocks the mic / voice for iOS
   let talk = null
   if (ov.handTalk !== false) {
-    const { createTalk } = await import('./talk.js?v=20261104a')
+    const { createTalk } = await import('./talk.js?v=20261104k')
     talk = createTalk({ THREE, getCamera, canvas, content, getRect: () => charRect(), ov, dbg })
     // talking starts only from the talk button; a poke (finger or tap on the character) just makes it react
     window.addEventListener('handplay:poke', () => { if (!talk.busy && !game?.chasing) emote('happy', 1500) })
@@ -188,7 +188,7 @@ export async function start(opts) {
   let game = null, replyAt = -1e9
   window.addEventListener('handplay:reply', () => { replyAt = performance.now(); window.__hpPet?.gain(4, 0, 8) })
   if (ov.handGame !== false) {
-    const { createGame } = await import('./game.js?v=20261104b')
+    const { createGame } = await import('./game.js?v=20261104k')
     game = createGame({
       THREE, scene, getCamera, canvas, group, getRect: () => charRect(), getBox: () => (charRect() ? box : null), emote, moves, ov, dbg,
       state: () => {
@@ -205,7 +205,7 @@ export async function start(opts) {
   // raise it like a virtual pet (pet.js): hunger / mood / level, floating status panel and buttons
   let pet = null
   if (ov.handPet !== false && game) {
-    const { createPet } = await import('./pet.js?v=20261104h')
+    const { createPet } = await import('./pet.js?v=20261104l')
     pet = createPet({
       THREE, scene, getCamera, canvas, group, getRect: () => charRect(), getBox: () => (charRect() ? box : null),
       emote, moves, ov, dbg, getHand: () => hand,
