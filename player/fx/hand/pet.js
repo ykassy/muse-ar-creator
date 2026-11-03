@@ -2,17 +2,19 @@
 // closed: saved per work on this device), care raises them and earns friendship XP; levels make it
 // grow. The UI lives in space next to the character, not on the screen (AR-glasses ready): a status
 // panel over its head and four floating buttons - food / play / talk / pet. Press a button by tapping
-// it on screen, or by holding your index fingertip on it for a moment (hand tracking).
+// it on screen, or with your hand: aim the index fingertip at it and flick the finger (an air tap),
+// or hold the fingertip on it for a moment.
 
-const ICONS = { food: '🍎', play: '⚽', talk: '💬', pet: '🖐️' }
+const ICONS = { food: 1, play: 1, talk: 1, pet: 1 }   // ids of the floating buttons (drawn as pictograms)
 const FOODS = ['🍎', '🍙', '🍪', '🍓', '🍩']
+const COLORS = { food: ['#ffb347', '#ff7a1a'], play: ['#7ee08a', '#2fb457'], talk: ['#6cc4ff', '#2f86e8'], pet: ['#ff9cc4', '#ff4f8f'] }
 const LABELS = {
   ja: { food: 'ごはん', play: 'あそぶ', talk: 'おはなし', pet: 'なでる', hunger: 'おなか', mood: 'ごきげん', lv: 'Lv' },
   en: { food: 'Food', play: 'Play', talk: 'Talk', pet: 'Pet', hunger: 'Food', mood: 'Mood', lv: 'Lv' },
 }
 const HUNGER_PER_S = 1 / 40, MOOD_PER_S = 1 / 60   // 100 -> 0 in about 67 min / 100 min
 const AWAY_CAP = 60                                  // at most this much lost while the page was closed
-const DWELL_S = 0.6                                  // fingertip on a button this long = press
+const DWELL_S = 1.2                                  // fingertip held on a button this long = press (the air tap is quicker)
 const xpFor = (lv) => 20 + lv * 15                   // XP to go from lv to lv + 1
 const growthOf = (lv) => Math.min(1.3, 0.8 + (lv - 1) * 0.06)
 
@@ -79,21 +81,47 @@ export function createPet(api) {
     drawButton(b)
     return b
   })
+  // coloured disc + bold white pictogram (emoji were too faint on a bright floor), label on a dark pill
+  function pictogram(x, id) {
+    x.save(); x.translate(128, 112); x.fillStyle = '#fff'; x.strokeStyle = '#fff'; x.lineCap = 'round'; x.lineJoin = 'round'
+    if (id === 'food') {        // apple
+      x.beginPath(); x.moveTo(0, -22); x.bezierCurveTo(-30, -44, -64, -14, -50, 18); x.bezierCurveTo(-40, 46, -16, 58, 0, 46)
+      x.bezierCurveTo(16, 58, 40, 46, 50, 18); x.bezierCurveTo(64, -14, 30, -44, 0, -22); x.fill()
+      x.lineWidth = 9; x.beginPath(); x.moveTo(0, -24); x.quadraticCurveTo(4, -44, 14, -52); x.stroke()
+      x.beginPath(); x.ellipse(24, -44, 16, 8, -0.5, 0, Math.PI * 2); x.fill()
+    } else if (id === 'play') { // ball
+      x.lineWidth = 9; x.beginPath(); x.arc(0, 4, 50, 0, Math.PI * 2); x.stroke()
+      x.beginPath(); for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * Math.PI * 2 / 5; x.lineTo(Math.cos(a) * 20, 4 + Math.sin(a) * 20) } x.closePath(); x.fill()
+      for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * Math.PI * 2 / 5; x.beginPath(); x.moveTo(Math.cos(a) * 20, 4 + Math.sin(a) * 20); x.lineTo(Math.cos(a) * 46, 4 + Math.sin(a) * 46); x.stroke() }
+    } else if (id === 'talk') { // speech bubble with dots
+      x.beginPath(); x.moveTo(-50, -34); x.arcTo(56, -34, 56, 30, 18); x.arcTo(56, 30, -50, 30, 18); x.lineTo(-14, 30); x.lineTo(-34, 54); x.lineTo(-30, 30)
+      x.arcTo(-56, 30, -56, -34, 18); x.arcTo(-56, -34, 56, -34, 18); x.closePath(); x.fill()
+      x.fillStyle = COLORS.talk[1]; for (const dx of [-24, 0, 24]) { x.beginPath(); x.arc(dx, -2, 8, 0, Math.PI * 2); x.fill() }
+    } else {                     // heart (pet / stroke)
+      x.beginPath(); x.moveTo(0, 50); x.bezierCurveTo(-64, 8, -50, -50, 0, -22); x.bezierCurveTo(50, -50, 64, 8, 0, 50); x.fill()
+    }
+    x.restore()
+  }
   function drawButton(b) {
     const x = b.c.getContext('2d')
     x.clearRect(0, 0, 256, 256)
-    const g = x.createRadialGradient(128, 110, 20, 128, 128, 110)
-    g.addColorStop(0, 'rgba(255,255,255,0.97)'); g.addColorStop(1, 'rgba(235,240,255,0.9)')
-    x.fillStyle = g; x.beginPath(); x.arc(128, 116, 92, 0, Math.PI * 2); x.fill()
-    x.lineWidth = 6; x.strokeStyle = 'rgba(255,255,255,1)'; x.stroke()
-    if (b.hover > 0) {   // fingertip dwell progress
-      x.lineWidth = 14; x.strokeStyle = '#ff6fa3'; x.lineCap = 'round'
-      x.beginPath(); x.arc(128, 116, 100, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, b.hover)); x.stroke()
+    const [c0, c1] = COLORS[b.id]
+    x.save(); x.shadowColor = 'rgba(0,0,0,0.35)'; x.shadowBlur = 14; x.shadowOffsetY = 5
+    const g = x.createLinearGradient(0, 30, 0, 200); g.addColorStop(0, c0); g.addColorStop(1, c1)
+    x.fillStyle = g; x.beginPath(); x.arc(128, 112, 86, 0, Math.PI * 2); x.fill(); x.restore()
+    x.lineWidth = 7; x.strokeStyle = '#fff'; x.beginPath(); x.arc(128, 112, 86, 0, Math.PI * 2); x.stroke()
+    if (b.aim) {                 // the fingertip is on it: glow so you know what you are about to press
+      x.lineWidth = 12; x.strokeStyle = 'rgba(255,255,255,0.9)'; x.beginPath(); x.arc(128, 112, 101, 0, Math.PI * 2); x.stroke()
     }
-    x.font = '84px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'
-    x.fillText(ICONS[b.id], 128, 112)
-    x.font = font(900, 34); x.fillStyle = '#fff'; x.strokeStyle = 'rgba(40,40,60,0.75)'; x.lineWidth = 8
-    x.strokeText(L[b.id], 128, 232); x.fillText(L[b.id], 128, 232)
+    if (b.hover > 0) {           // hold-to-press progress (the fallback when tapping is hard)
+      x.lineWidth = 12; x.strokeStyle = '#ffe45c'; x.lineCap = 'round'
+      x.beginPath(); x.arc(128, 112, 101, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, b.hover)); x.stroke()
+    }
+    pictogram(x, b.id)
+    x.font = font(900, 32); x.textAlign = 'center'; x.textBaseline = 'middle'
+    const w = x.measureText(L[b.id]).width + 30
+    x.fillStyle = 'rgba(30,30,45,0.78)'; roundRect(x, 128 - w / 2, 212, w, 40, 20); x.fill()
+    x.fillStyle = '#fff'; x.fillText(L[b.id], 128, 233)
     b.tex.needsUpdate = true
   }
 
@@ -135,23 +163,44 @@ export function createPet(api) {
     const p = obj.position.clone().project(getCamera())
     return { x: (p.x + 1) / 2 * canvas.clientWidth, y: (1 - p.y) / 2 * canvas.clientHeight }
   }
+  // pressing with the hand: aim the index fingertip at a button (it glows), then flick the finger -
+  // bend and straighten it, an "air tap" - to press. Holding still on it also presses (slower), for
+  // hands that find the flick hard. The tap counts for the button aimed at in the last 0.45 s, since
+  // bending the finger moves its tip off the button.
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
+  let aimed = null, aimedAt = -1e9, extHi = 0, extHiAt = -1e9, tapCool = 0
+  const dbgState = {}
   function updateDwell(dt) {
-    const h = getHand && getHand()
+    const h = getHand && getHand(), now = performance.now()
     let target = null
     if (h && h.seen && h.indexPx && !state().grabbing) {
       for (const b of buttons) {
         if (!b.sp.visible) continue
         const c = screenOf(b.sp)
-        const edge = screenOf({ position: b.sp.position.clone().addScaledVector(right, b.sp.scale.x * 0.42) })
-        const rad = Math.max(28, Math.hypot(edge.x - c.x, edge.y - c.y))
+        const edge = screenOf({ position: b.sp.position.clone().addScaledVector(right, b.sp.scale.x * 0.45) })
+        const rad = Math.max(30, Math.hypot(edge.x - c.x, edge.y - c.y))
         if (Math.hypot(h.indexPx.x - c.x, h.indexPx.y - c.y) < rad) { target = b; break }
       }
     }
+    if (target) { aimed = target; aimedAt = now }
+    // air tap: index tip-to-wrist vs knuckle-to-wrist; straight > 1.1, bent < 1.0
+    tapCool -= dt
+    if (h && h.seen && h.lm) {
+      const lm = h.lm, ext = dist(lm[0], lm[8]) / (dist(lm[0], lm[6]) || 1e-3)
+      dbgState.ext = ext; dbgState.aimed = aimed && aimed.id; dbgState.sinceAim = now - aimedAt; dbgState.sinceHi = now - extHiAt
+      if (ext > 1.1) { extHi = ext; extHiAt = now }
+      if (ext < 1.0 && now - extHiAt < 450 && aimed && now - aimedAt < 450 && tapCool <= 0) {
+        tapCool = 0.6; extHiAt = -1e9
+        const b = aimed; aimed = null; b.hover = 0
+        press(b)
+      }
+    }
     for (const b of buttons) {
-      const before = b.hover
+      const before = b.hover, aimBefore = b.aim
+      b.aim = b === target
       b.hover = b === target ? b.hover + dt / DWELL_S : Math.max(0, b.hover - dt * 3)
       if (b === target && b.hover >= 1) { b.hover = 0; press(b) }
-      if (Math.abs(b.hover - before) > 0.02 || (before > 0 && b.hover === 0)) drawButton(b)
+      if (aimBefore !== b.aim || Math.abs(b.hover - before) > 0.02 || (before > 0 && b.hover === 0)) drawButton(b)
     }
   }
 
@@ -234,6 +283,7 @@ export function createPet(api) {
     update, on, gain,
     get growth() { return growthShown },
     get stats() { return { ...st } },
+    get debug() { return { ...dbgState } },
     // tests / demos
     set(v) { Object.assign(st, v); growth = growthOf(st.level); drawPanel(); save() },
     press(id) { press(buttons.find((b) => b.id === id)) },
