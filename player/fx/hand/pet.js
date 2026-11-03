@@ -173,22 +173,23 @@ export function createPet(api) {
     const p = obj.position.clone().project(getCamera())
     return { x: (p.x + 1) / 2 * canvas.clientWidth, y: (1 - p.y) / 2 * canvas.clientHeight }
   }
-  // pressing with the hand: point with the index finger (others folded) and touch a button with the
-  // fingertip - it glows, and after a short touch it is pressed, like poking a button in the air. To
-  // press it again, take the finger off first. An open hand or a pinch passing over does nothing.
-  const TOUCH_S = 0.15
+  // pressing with the hand: touch a button with the index fingertip - it glows, and after a short touch
+  // it is pressed, like poking a button in the air. To press it again, take the finger off first.
+  // No hand-shape check: pointing at something in AR points the finger away from the camera, so it
+  // looks short and never reads as "extended". Only a pinch (carrying) never presses.
+  const TOUCH_S = 0.25
   const dbgState = {}
   let touched = null, touchT = 0, lockedOn = null
   function updateDwell(dt) {
     const h = getHand && getHand()
     let target = null
-    const pointing = !!(h && h.seen && h.indexPx && h.poke && !state().grabbing)
+    const pointing = !!(h && h.seen && h.indexPx && !h.pinch && !state().grabbing)
     if (pointing) {
       for (const b of buttons) {
         if (!b.sp.visible) continue
         const c = screenOf(b.sp)
         const edge = screenOf({ position: b.sp.position.clone().addScaledVector(right, b.sp.scale.x * 0.45) })
-        const rad = Math.max(30, Math.hypot(edge.x - c.x, edge.y - c.y))
+        const rad = Math.max(34, Math.hypot(edge.x - c.x, edge.y - c.y) * 1.15)
         if (Math.hypot(h.indexPx.x - c.x, h.indexPx.y - c.y) < rad) { target = b; break }
       }
     }
