@@ -1,13 +1,23 @@
 # AR Creator — Talk to Muse, unlock AR
 
+**Talk to Muse, and a character you can touch and talk to is born inside HACKAR:S — our production WebAR platform.** Hand interactions designed for AR glasses, tried on today's phones.
+
 An MCP connector for the **Meta Global AI Developer Hackathon** (Cerebral Valley, Oct 26 – Nov 4, 2026), built by HACK IT INC. (solo).
 
 Say a one-word theme in Muse, and this connector:
 
 1. **Composes** the character server-side with the Meta Model API — `muse-spark-1.3` designs the title, overlay text, base color, the magic spell, and the character's **name and personality** (JSON); `muse-image-1.0` generates the artwork, plus face variants (happy / surprised / sad / angry) via image edits, each re-cut with the original silhouette mask. Token usage is logged on every run as Tooling evidence. Muse Spark then **checks its own artwork with vision** — the cut-out on a gray floor, as it will stand in AR — and if it fails (holes, a cropped limb, leftover background) it writes the fix into a new image prompt and redraws once.
 2. **Builds a semi-3D model on the server** (`api/glb.mjs`, pure JS): the flat artwork becomes a plate with real thickness (1/15 of its height), an edge-coloured rim, a baked ground shadow, a 3-joint squash-and-stretch rig, and **nine named animation clips** — `idle` / `happy` / `surprised` / `sad` / `angry` / `talk` / `dangle` / `land` / `zap`.
-3. **Publishes into HACKAR:S** (our production WebAR platform) as a real project: the model, one of five real three.js **Ultra Elements** spells (lightning / fire / frozen lightning / starfall / light pillar), expression switching, and **Hand Play** — pinch the character with your fingers to pick it up and carry it, press the talk button and it listens and answers in character (voice transcription + Spark reply + speech, with an emotion that changes its face and moves), hold up a palm to cast its spell. Ask it to jump, spin or cast its spell and it does — Spark returns an action with its reply (speech is read out with the phone's built-in voice). It moves calmly on its own (looking around, the occasional hop), lives with you as a small pet (feed / play / talk / pet from the buttons at its feet; it grows, gets hungry, sleeps at night and now and then leaves a mess you clean with a fingertip), and it plays a **wish game** with kids: it asks to be lifted, carried to a glowing ring, talked to, petted, or chased — tap to blow bubbles at it while it dodges.
+3. **Publishes into HACKAR:S** (our production WebAR platform) as a real project: the model, one of five real three.js **Ultra Elements** spells (lightning / fire / frozen lightning / starfall / light pillar), expression switching, and **Hand Play** — pinch the character with your fingers to pick it up and carry it, press the talk button and it listens and answers in character (voice transcription + Spark reply + speech, with an emotion that changes its face and moves), hold up a palm to cast its spell. Ask it to jump, spin or cast its spell and it does — Spark returns an action with its reply (speech is read out with the phone's built-in voice). It moves calmly on its own (looking around, the occasional hop), lives with you as a small pet (feed / play / talk / pet from the buttons at its feet; it grows, gets hungry, sleeps at night and now and then leaves a mess you clean with a fingertip),.
 4. **Certifies** the creation with a signed certificate page (one per creator) that links the published work and prints the Meta Model API usage.
+
+## In production
+
+- **Real output, real platform.** Every run creates a project in HACKAR:S (hackar-s.com), the WebAR platform we already run for brand and event AR. The only link the user gets is that hackar-s.com URL.
+- **Time.** Theme to a live link took about 1.5–2 minutes in our runs (composition ~55 s, ~90 s when the self-check asks for a redraw; publishing ~30 s).
+- **Cost per character.** About six Muse Image calls (artwork, four expressions, at most one redraw) at $0.01 each plus a few thousand Muse Spark tokens — roughly $0.07.
+- **Honest failure.** If publishing fails, the user is told so; no other URL is substituted.
+- **Guard rails.** Per-IP and global rate limits on the paid tools and on talk, plus pause switches (`AR_PAUSED`, `TALK_PAUSED`).
 
 If the model API is unavailable, composition falls back to a deterministic template so a creation always stands up (publishing still requires the real pipeline and fails honestly rather than substituting another URL).
 
@@ -16,7 +26,7 @@ If the model API is unavailable, composition falls back to a deterministic templ
 | Part | When |
 |---|---|
 | This connector: MCP server (`api/mcp.js`), the JS GLB builder (`api/glb.mjs`), the Blender reference pipeline (`pipeline/`), expression generation, the talk endpoint (`api/talk.js`) | **Built during the hackathon (Oct 26 – Nov 4, 2026)** |
-| The player features on the phone: Hand Play (pinch / carry / poke / palm), the talk button, floor-AR-style choreography, the wish game for kids with "catch me if you can", emotion clip / expression switching — **copied into [`player/`](player/)** — and the Ultra Elements overlay module [`ultra-host/`](ultra-host/) | **Built during the hackathon** (served from hackar-s.com; see `player/README.md`) |
+| The player features on the phone: Hand Play (pinch / carry / poke / palm), the talk button, floor-AR-style choreography, emotion clip / expression switching — **copied into [`player/`](player/)** — and the Ultra Elements overlay module [`ultra-host/`](ultra-host/) | **Built during the hackathon** (served from hackar-s.com; see `player/README.md`) |
 | HACKAR:S-side API additions used by this connector: `POST /api/project-create` extensions (`ultraFx`, `handPlay`, `modelGlbUrl`, expression overlays), `POST /api/asset-store` | **Built during the hackathon** (in the closed-source HACKAR:S repository) |
 | HACKAR:S platform itself — the no-code WebAR editor, SLAM player core, accounts, project storage at hackar-s.com | Pre-existing product of HACK IT INC., in production before the hackathon; used here as the publishing target |
 | **Ultra Elements** — the five spell effects are from the open-source three.js library [Humpalumps/ultra-elements](https://github.com/Humpalumps/ultra-elements), **MIT License** | Pre-existing third-party OSS, credited here as required |
