@@ -7,6 +7,8 @@ const MODEL_API_KEY = process.env.MODEL_API_KEY || '';
 const ASR_MODEL = 'muse-voice-transcribe-1.0';
 const SPARK_MODEL = 'muse-spark-1.3';
 const EMOTIONS = ['happy', 'surprised', 'sad', 'angry', 'neutral'];
+// what the character can do when asked ("jump!", "show me your magic"); the player plays it
+const ACTIONS = ['jump', 'spin', 'hop', 'flat', 'spell', 'look', 'none'];
 const MAX_AUDIO = 2 * 1024 * 1024;   // ~60 s of 16 kHz mono WAV, far more than one turn needs
 const EFFORTS = ['none', 'minimal', 'low', undefined];   // tried in order until one is accepted
 let effortAt = 0;
@@ -39,7 +41,8 @@ async function reply({ heard, name, persona, lang, history }) {
   const sys = `You are ${name || 'a small AR character'}, standing on the user's floor in augmented reality. ${persona || 'You are cheerful and a little mischievous.'} `
     + `The user is talking to you through their phone (they pressed the talk button and spoke). Answer in ${lang === 'en' ? 'English' : 'Japanese (casual, friendly)'}, in one or two short sentences, in character. `
     + 'No emojis, no stage directions, no markdown. '
-    + 'Reply as JSON only: {"reply": "<what you say>", "emotion": "happy" | "surprised" | "sad" | "angry" | "neutral"} — the emotion is how you feel saying it.';
+    + 'You can also move. If the user asks you to do something (or it fits the moment), pick ONE action: "jump" (a big jump), "spin" (a spinning jump), "hop" (hop around in a circle), "flat" (flop flat on the floor and pop back up), "spell" (cast your magic spell), "look" (look around); otherwise "none". When you do it, say so in your reply. '
+    + 'Reply as JSON only: {"reply": "<what you say>", "emotion": "happy" | "surprised" | "sad" | "angry" | "neutral", "action": "jump" | "spin" | "hop" | "flat" | "spell" | "look" | "none"} — the emotion is how you feel saying it.';
   const messages = [{ role: 'system', content: sys }];
   for (const h of (Array.isArray(history) ? history : []).slice(-6)) {
     if (h && (h.role === 'user' || h.role === 'assistant') && typeof h.content === 'string') messages.push({ role: h.role, content: h.content.slice(0, 300) });
@@ -60,10 +63,10 @@ async function reply({ heard, name, persona, lang, history }) {
     effortAt = i;
     const data = await res.json();
     const raw = String(data?.choices?.[0]?.message?.content || '').replace(/```(?:json)?/gi, '').trim();
-    let text = raw, emotion = 'neutral';
+    let text = raw, emotion = 'neutral', action = 'none';
     const m = /\{[\s\S]*\}/.exec(raw);
-    if (m) { try { const j = JSON.parse(m[0]); text = String(j.reply || '').trim(); if (EMOTIONS.includes(j.emotion)) emotion = j.emotion; } catch { /* plain text reply */ } }
-    if (text) return { text: text.slice(0, 240), emotion, usage: data?.usage || null, effort: effort ?? 'default' };
+    if (m) { try { const j = JSON.parse(m[0]); text = String(j.reply || '').trim(); if (EMOTIONS.includes(j.emotion)) emotion = j.emotion; if (ACTIONS.includes(j.action)) action = j.action; } catch { /* plain text reply */ } }
+    if (text) return { text: text.slice(0, 240), emotion, action, usage: data?.usage || null, effort: effort ?? 'default' };
   }
   throw new Error('spark returned empty content');
 }
@@ -90,8 +93,8 @@ async function handle(request) {
       asrMs = Date.now() - ta;
     }
     const r = await reply({ heard, name: String(body.name || '').slice(0, 60), persona: String(body.persona || '').slice(0, 400), lang: body.lang === 'en' ? 'en' : 'ja', history: body.history });
-    console.log('[TALK]', JSON.stringify({ at: new Date().toISOString(), asr: ASR_MODEL, asrMs, heardLen: heard.length, spark: SPARK_MODEL, effort: r.effort, usage: r.usage, ms: Date.now() - t0 }));
-    return json({ heard, reply: r.text, emotion: r.emotion, models: { asr: body.audio ? ASR_MODEL : null, spark: SPARK_MODEL, effort: r.effort }, usage: r.usage }, 200, origin);
+    console.log('[TALK]', JSON.stringify({ at: new Date().toISOString(), asr: ASR_MODEL, asrMs, heardLen: heard.length, spark: SPARK_MODEL, effort: r.effort, action: r.action, usage: r.usage, ms: Date.now() - t0 }));
+    return json({ heard, reply: r.text, emotion: r.emotion, action: r.action, models: { asr: body.audio ? ASR_MODEL : null, spark: SPARK_MODEL, effort: r.effort }, usage: r.usage }, 200, origin);
   } catch (e) {
     console.log('[TALK] error', JSON.stringify({ error: String(e?.message || e), ms: Date.now() - t0 }));
     return json({ error: 'talk failed', detail: String(e?.message || e).slice(0, 200) }, 502, origin);

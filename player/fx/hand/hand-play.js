@@ -185,6 +185,17 @@ export async function start(opts) {
   // in-house floor-AR style choreography (moves.js): rise from the floor, hop laps, spins, emotions
   const { createMoves } = await import('./moves.js?v=20261104t')
   const moves = createMoves({ calm: ov.handPet !== false })   // a pet: mostly calm, just there
+  // asked out loud ("jump!", "show me your magic"): Muse Spark picks an action with its reply
+  const ACT = { jump: 'bigJump', spin: 'spinJump', hop: 'hopLap', flat: 'flatPop', look: 'lookAround' }
+  window.addEventListener('handplay:reply', (e) => {
+    const a = e.detail && e.detail.action
+    if (!a || a === 'none') return
+    setTimeout(() => {
+      if (grab.on || grab.falling || game?.chasing) return
+      if (a === 'spell') { window.dispatchEvent(new CustomEvent('handplay:palm', { detail: {} })); return }
+      if (ACT[a]) moves.play(ACT[a])
+    }, 600)
+  })
   let breathT = 0
   let H = 0, T = 0   // character height / thickness in the group's units, measured once at rest
 

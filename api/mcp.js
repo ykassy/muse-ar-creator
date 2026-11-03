@@ -144,9 +144,9 @@ const keyFor = (theme) => /(葉|緑|グリーン|カエル|森|草|抹茶|苔|le
   ? { name: 'blue', hex: '#0000FF', ch: 2 }
   : { name: 'green', hex: '#00FF00', ch: 1 };
 
-async function callImage(theme, comp, background) {
+async function callImage(theme, comp, background, fix = '') {
   const key = keyFor(theme);
-  const basePrompt = `A single charming mascot-like character illustration for an AR overlay, theme: "${theme}" (${comp.title}). Flat vector style, bold shapes, bold dark outline, no text, no letters, centered, full body, playful.`;
+  const basePrompt = `A single charming mascot-like character illustration for an AR overlay, theme: "${theme}" (${comp.title}). Flat vector style, bold shapes, bold dark outline, no text, no letters, centered, full body, playful.${fix ? ` ${fix}` : ''}`;
   const prompt = background === 'transparent'
     ? `${basePrompt} The character stands on a completely solid vivid ${key.name} (${key.hex}) chroma key background that fills the entire frame edge to edge. No shadow, no gradient, no floor, no ground line, no other objects, no floating decorations.`
     : `${basePrompt} Clean solid background in the base color ${comp.color}.`;
@@ -1281,6 +1281,45 @@ async function makeFaces(rawPngBuf, keyedBuf, keyCh) {
 // 生成画像（不透明化して渡す）から "cartoon character" のマスクを取り、
 // クロマキーより綺麗な輪郭が得られたときだけ差し替える。安全弁：カバー率が
 // 異常、またはクロマキーの輪郭と大きく食い違う（IoU < 0.5）ときはクロマキーのまま。
+// ---- 自己チェック：Muse Spark が切り抜いた絵を AR に置いた姿で見て、だめなら描き直しを頼む ----
+// 灰色の床に置いた見た目（512px）を Spark に見せ、JSON で合否・点数・直し方を返させる。
+async function checkArt(cutBuf, theme) {
+  const img = decodePng(cutBuf);
+  const k = Math.min(1, 512 / Math.max(img.w, img.h));
+  const sm = k < 1 ? scaleRgba(img, Math.round(img.w * k), Math.round(img.h * k)) : img;
+  const out = new Uint8Array(sm.w * sm.h * 4);
+  for (let i = 0; i < sm.w * sm.h; i++) {
+    const a = sm.rgba[i * 4 + 3] / 255;
+    for (let c = 0; c < 3; c++) out[i * 4 + c] = Math.round(sm.rgba[i * 4 + c] * a + 128 * (1 - a));
+    out[i * 4 + 3] = 255;
+  }
+  const dataUrl = 'data:image/png;base64,' + Buffer.from(encodePng(sm.w, sm.h, out)).toString('base64');
+  const ask = `This is a cut-out character for the theme "${theme}", shown on a flat gray background exactly as it will stand in AR. Check it the way a picky art director would. `
+    + 'It FAILS if any of these is true: more than one character or extra loose objects; part of the body is cut off by the frame edge; any text or letters; leftover patches of the old green/blue background or a colored fringe along the outline; holes or missing pieces inside the body; it does not read as the theme. '
+    + 'Reply with ONE JSON object only: {"ok": true|false, "score": 0-10, "issues": ["short English phrases"], "fix": "one short sentence to add to the image prompt that would fix the problems, or empty"}';
+  const res = await fetch(`${API_BASE}/chat/completions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${MODEL_API_KEY}`, 'content-type': 'application/json' },
+    signal: AbortSignal.timeout(25_000),
+    body: JSON.stringify({
+      model: SPARK_MODEL, temperature: 0.2, max_tokens: 3000, reasoning_effort: 'low',
+      messages: [{ role: 'user', content: [{ type: 'text', text: ask }, { type: 'image_url', image_url: { url: dataUrl } }] }],
+    }),
+  });
+  if (!res.ok) throw new Error(`check http ${res.status}`);
+  const data = await res.json();
+  const raw = String(data?.choices?.[0]?.message?.content || '').replace(/```(?:json)?/gi, '');
+  const m = /\{[\s\S]*\}/.exec(raw);
+  if (!m) throw new Error('check returned no json');
+  const j = JSON.parse(m[0]);
+  const score = Math.max(0, Math.min(10, Number(j.score) || 0));
+  return {
+    ok: j.ok === true && score >= 6, score,
+    issues: (Array.isArray(j.issues) ? j.issues : []).map((x) => String(x).slice(0, 80)).slice(0, 4),
+    fix: String(j.fix || '').slice(0, 200), usage: data?.usage || null,
+  };
+}
+
 async function callSamCutout(rawPngBuf, chromaBuf) {
   try {
     const raw = decodePng(rawPngBuf);
@@ -1390,6 +1429,7 @@ function buildServer() {
     },
     annotations: { title: 'ARの中身を組み立てる', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ nickname, theme, effect, talkLang, card }) => {
+    const t0 = Date.now();
     const u = getU(nickname, card);
     if (!u.agreed) {
       return { content: [{ type: 'text', text: 'まだ参加の確認ができてないみたい。先に start_create で「いいよ」をもらってね。' }], structuredContent: { needsAgreement: true, card: packCard(u) } };
@@ -1434,6 +1474,32 @@ function buildServer() {
       const sam = await callSamCutout(rawPngBuf, keyedBuf);
       if (sam) { keyedBuf = sam.buf; samUsage = { calls: 1 }; }
     }
+    // 自己チェック：Spark が仕上がりを目で見る。不合格で時間に余裕があれば、直し方を足して1回だけ描き直す。
+    let check = null, redrawn = false, checkUsage = null;
+    const addUsage = (a, b) => { if (!a || !b) return a || b; const x = normUsage(a), y = normUsage(b); return { prompt_tokens: (x.in || 0) + (y.in || 0), completion_tokens: (x.out || 0) + (y.out || 0), total_tokens: (x.total || 0) + (y.total || 0) }; };
+    if (keyedBuf && MODEL_API_KEY && comp) {
+      try {
+        check = await checkArt(keyedBuf, th); checkUsage = check.usage;
+        console.log('[AR] self-check', JSON.stringify({ theme: th, ok: check.ok, score: check.score, issues: check.issues, ms: Date.now() - t0 }));
+        if (!check.ok && Date.now() - t0 < 60_000) {
+          const r = await callImage(th, comp, 'transparent', check.fix || 'Show exactly one character, whole body inside the frame, no text.');
+          if (r.b64 && r.type === 'image/png') {
+            const raw2 = Buffer.from(r.b64, 'base64');
+            let cut2 = makeTransparent(raw2, r.keyCh || 1);
+            const sam2 = await callSamCutout(raw2, cut2);
+            if (sam2) cut2 = sam2.buf;
+            const check2 = await checkArt(cut2, th);
+            checkUsage = addUsage(checkUsage, check2.usage); imageUsage = addUsage(imageUsage, r.usage);
+            console.log('[AR] self-check-redo', JSON.stringify({ theme: th, ok: check2.ok, score: check2.score, issues: check2.issues, ms: Date.now() - t0 }));
+            if (check2.ok || check2.score > check.score) {
+              rawPngBuf = raw2; keyedBuf = cut2; keyCh = r.keyCh || 1; redrawn = true;
+              if (imgId) imgs.set(imgId, { buf: cut2, type: 'image/png' });
+              check = { ...check2, before: { score: check.score, issues: check.issues } };
+            }
+          }
+        }
+      } catch (e) { console.log('[AR] self-check-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); }
+    }
     if (!comp) comp = fallbackComp(th);
     if (effect && effect !== 'auto') comp.effect = effect;
     const action = comp.action || '';
@@ -1452,20 +1518,20 @@ function buildServer() {
       try { faces = await makeFaces(rawPngBuf, keyedBuf, keyCh); } catch { faces = {}; }
     }
 
-    const usage = (sparkUsage || imageUsage || samUsage) ? { s: normUsage(sparkUsage), i: normUsage(imageUsage), ...(samUsage ? { a: samUsage } : {}) } : null;
+    const usage = (sparkUsage || imageUsage || samUsage) ? { s: normUsage(sparkUsage), i: normUsage(imageUsage), ...(samUsage ? { a: samUsage } : {}), ...(checkUsage ? { k: normUsage(checkUsage) } : {}) } : null;
     u.usage = usage;
     const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
     const arTok = packTok({ i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
     u.arTok = arTok; u.arId = arId; u.certTok = null;
     const spell = spellOf(comp.effect);
     const summary = usedModel
-      ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}${samUsage ? '／切り抜きは SAM 3.1' : ''}）`
+      ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}${samUsage ? '／切り抜きは SAM 3.1' : ''}${check ? `／仕上がりは Muse Spark が目で確認（${redrawn ? `${check.before.score}点で不合格→描き直して${check.score}点` : `${check.score}点${check.ok ? 'で合格' : '・時間内に直せず'}`}、${usageText('Spark', checkUsage)}）` : ''}）`
       : 'テンプレート構成で組み立てました（モデル未使用）';
     const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き）で組み立てたよ。\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\nこのまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。`;
     console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
     return {
       content: [{ type: 'text', text }],
-      structuredContent: { title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, card: packCard(u) },
+      structuredContent: { title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: packCard(u) },
     };
   });
 
