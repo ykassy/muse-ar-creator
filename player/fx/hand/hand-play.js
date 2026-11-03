@@ -294,10 +294,16 @@ export async function start(opts) {
     for (const o of shadows(c)) {
       o.userData._hpRest = { op: o.material.opacity }
       o.userData._hpRel = mA.clone().multiply(o.matrixWorld)
+      // the baked blob sits exactly at floor height, where the floor / shadow-catcher plane is too:
+      // it lost the depth test and vanished. Draw it just above and after the floor.
+      o.material.polygonOffset = true; o.material.polygonOffsetFactor = -4; o.material.polygonOffsetUnits = -4
+      // and draw both faces: older generated GLBs wound the blob facing down, so from above it was culled
+      o.material.side = THREE.DoubleSide; o.material.needsUpdate = true
+      o.renderOrder = Math.max(o.renderOrder, 2)
     }
   }
   function pinShadows(c, g, heightWorld, ox, oz) {
-    mOff.makeTranslation(ox, 0, oz)
+    mOff.makeTranslation(ox, 0.004 / (g.scale.y || 1), oz)   // ~4 mm above the floor
     for (const o of shadows(c)) {
       const u = o.userData
       if (!u._hpRel) continue
