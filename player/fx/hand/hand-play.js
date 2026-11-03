@@ -182,7 +182,7 @@ export async function start(opts) {
   window.addEventListener('handplay:reply', (e) => { const em = e.detail && e.detail.emotion; if (em) emote(em) })
   window.addEventListener('handplay:palm', () => setTimeout(() => emote('zap', 2500), 700))
 
-  // in-house floor-AR style choreography (moves.js): rise from the floor, hop laps, spins, emotions
+  // CPD floor-AR style choreography (moves.js): rise from the floor, hop laps, spins, emotions
   const { createMoves } = await import('./moves.js?v=20261104t')
   const moves = createMoves({ calm: ov.handPet !== false })   // a pet: mostly calm, just there
   // asked out loud ("jump!", "show me your magic"): Muse Spark picks an action with its reply
@@ -204,6 +204,7 @@ export async function start(opts) {
   if (ov.handTalk !== false) {
     const { createTalk } = await import('./talk.js?v=20261104s')
     talk = createTalk({ THREE, getCamera, canvas, content, getRect: () => charRect(), ov, dbg })
+    if (window.__emu) window.__hpTalk = talk   // emulator only: scripted lines for demos and tests (talk.poke('Jump!'))
     // talking starts only from the talk button; a poke (finger or tap on the character) just makes it react
     window.addEventListener('handplay:poke', () => { if (!talk.busy && !game?.chasing) emote('happy', 1500) })
     let unlocked = false
