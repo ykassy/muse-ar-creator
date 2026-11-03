@@ -13,6 +13,7 @@ const WISHES = {
   chase: { ja: 'つかまえてごらん！タップでシャボン玉！', en: 'Catch me if you can! Tap to blow bubbles!' },
 }
 const CHASE_S = 25, CHASE_HITS = 3, DODGE_CHANCE = 0.5
+const CHALLENGE_S = 20   // the timed mini game: hit it as many times as you can
 const THANKS = { ja: ['ありがとう！', 'やったー！', 'だいすき！', 'うれしい！'], en: ['Thank you!', 'Yay!', 'I love it!', 'So happy!'] }
 const LEVELS = [3, 6, 10, 15, 21]
 const GIVE_UP_S = 30
@@ -29,6 +30,26 @@ const CSS = `
 .hp-wish .bar{position:absolute;left:10px;right:10px;bottom:3px;height:3px;border-radius:2px;background:rgba(58,42,0,.25);overflow:hidden}
 .hp-wish .bar i{display:block;height:100%;background:#3a2a00;opacity:.55}
 .hp-heart{position:fixed;z-index:63;pointer-events:none;transform:translate(-50%,-50%);transition:left .9s cubic-bezier(.5,0,.75,0),top .9s cubic-bezier(.3,1.4,.6,1),opacity .9s}
+.hp-start{position:fixed;z-index:62;display:flex;align-items:center;gap:6px;padding:8px 14px 8px 11px;border-radius:18px;background:linear-gradient(135deg,#ff6fa3,#ffb36b);color:#fff;
+  font:800 14px/1 -apple-system,"Hiragino Sans",sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+.hp-start:active{transform:scale(.95)}
+.hp-timer{position:fixed;z-index:63;transform:translateX(-50%);width:min(78vw,340px);padding:9px 14px 11px;border-radius:18px;background:rgba(20,20,28,.55);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  color:#fff;font:800 15px/1 -apple-system,"Hiragino Sans",sans-serif;pointer-events:none;display:none}
+.hp-timer .row{display:flex;justify-content:space-between;align-items:baseline}
+.hp-timer .sec{font-size:26px}.hp-timer .sc{font-size:22px;color:#ffe45c}
+.hp-timer .bar{margin-top:8px;height:7px;border-radius:4px;background:rgba(255,255,255,.22);overflow:hidden}
+.hp-timer .bar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#5ef0c2,#ffe45c);transition:background .3s}
+.hp-timer.hurry .bar i{background:#ff5470}.hp-timer.hurry .sec{color:#ff7a8e}
+.hp-plus{position:fixed;z-index:63;pointer-events:none;transform:translate(-50%,-50%);color:#ffe45c;font:900 26px/1 -apple-system,"Hiragino Sans",sans-serif;text-shadow:0 2px 8px rgba(0,0,0,.4);transition:transform .7s ease-out,opacity .7s}
+.hp-result{position:fixed;z-index:65;left:50%;top:50%;transform:translate(-50%,-50%);width:min(82vw,330px);padding:20px 18px 16px;border-radius:24px;background:rgba(255,255,255,.96);color:#222;
+  font:600 14px/1.4 -apple-system,"Hiragino Sans",sans-serif;box-shadow:0 16px 44px rgba(0,0,0,.35);text-align:center;display:none}
+.hp-result h3{margin:0 0 4px;font-size:16px;color:#888}.hp-result .big{font-size:46px;font-weight:900;color:#ff5c8a;line-height:1.1}
+.hp-result ol{list-style:none;margin:12px 0 14px;padding:0;text-align:left}
+.hp-result li{display:flex;justify-content:space-between;padding:6px 10px;border-radius:10px}
+.hp-result li.me{background:#fff2a8;font-weight:800}
+.hp-result .btns{display:flex;gap:8px;justify-content:center}
+.hp-result button{border:0;border-radius:14px;padding:10px 16px;font:800 14px/1 -apple-system,"Hiragino Sans",sans-serif;cursor:pointer}
+.hp-result .again{background:linear-gradient(135deg,#ff6fa3,#ffb36b);color:#fff}.hp-result .close{background:#eee;color:#555}
 .hp-banner{position:fixed;z-index:64;left:50%;top:40%;transform:translate(-50%,-50%) scale(.6);padding:14px 22px;border-radius:22px;background:linear-gradient(135deg,#ff6fa3,#ffb36b);
   color:#fff;font:800 22px/1.2 -apple-system,"Hiragino Sans",sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.3);opacity:0;pointer-events:none;transition:opacity .3s,transform .35s cubic-bezier(.3,1.6,.5,1)}
 `
@@ -45,7 +66,13 @@ export function createGame(api) {
   const hud = document.createElement('div'); hud.className = 'hp-hud'
   const card = document.createElement('div'); card.className = 'hp-wish'
   const banner = document.createElement('div'); banner.className = 'hp-banner'
-  document.body.append(hud, card, banner)
+  const startBtn = document.createElement('div'); startBtn.className = 'hp-start'; startBtn.setAttribute('role', 'button')
+  startBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="#fff" d="M7 5v14l11-7z"/></svg>' + (lang === 'en' ? '20s challenge' : '20秒チャレンジ')
+  const timer = document.createElement('div'); timer.className = 'hp-timer'
+  timer.innerHTML = '<div class="row"><span class="sec"></span><span class="sc"></span></div><div class="bar"><i></i></div>'
+  const result = document.createElement('div'); result.className = 'hp-result'
+  document.body.append(hud, card, banner, startBtn, timer, result)
+  for (const el of [startBtn, result]) { el.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true }); el.addEventListener('pointerdown', (e) => e.stopPropagation()) }
   function drawHud() { hud.innerHTML = `${HEART}<span>${hearts}</span><span class="lv">${lang === 'en' ? 'Friend Lv' : 'なかよし Lv'}${level + 1}</span>` }
   drawHud()
 
@@ -151,7 +178,7 @@ export function createGame(api) {
     chase.target.copy(chase.home)
   }
   function startChase() {
-    chase.on = true; chase.t = 0; chase.hits = 0; chase.dodge = 0
+    chase.on = true; chase.t = 0; chase.hits = 0; chase.dodge = 0; chase.mode = 'wish'; chase.lastDodge = -9; chase.dodges = 0
     chase.home.copy(group().position)
     newRunTarget()
   }
@@ -181,13 +208,25 @@ export function createGame(api) {
     const toC = tmpV.copy(tmpC).sub(cam.position), along = toC.dot(ray.ray.direction)
     const closest = toC.clone().sub(ray.ray.direction.clone().multiplyScalar(along)).length()
     const hitR = Math.max((box.max.x - box.min.x) * 0.5, s.height * 0.3)
-    if (closest < hitR && chase.t - chase.lastDodge > 0.7 && Math.random() < DODGE_CHANCE) {
+    // in the challenge it gets better at dodging as the score goes up
+    const dodgeP = chase.mode === 'challenge' ? Math.min(0.8, 0.45 + ch.score * 0.05) : DODGE_CHANCE
+    if (closest < hitR && chase.t - chase.lastDodge > (chase.mode === 'challenge' ? 0.45 : 0.7) && Math.random() < dodgeP) {
       const side = new THREE.Vector3(ray.ray.direction.z, 0, -ray.ray.direction.x).normalize()
       const off = toC.clone().sub(ray.ray.direction.clone().multiplyScalar(along))
-      const sign = off.dot(side) >= 0 ? 1 : -1
-      chase.target.copy(g.position).addScaledVector(side, sign * s.height * 0.85)
-      chase.dodge = 0.3; chase.lastDodge = chase.t
-      setTimeout(() => moves.play('dodge'), 120)
+      let sign = off.dot(side) >= 0 ? 1 : -1
+      // sidestep clear of the bubble (its width + the body's) if that stays on screen; otherwise
+      // jump over it
+      const rc = getRect(), lim = Math.max(0.15, 0.95 - (rc ? (rc.x1 - rc.x0) / 1.5 / canvas.clientWidth : 0.2))
+      const need = (box.max.x - box.min.x) * 0.75 + size
+      let sideOK = false
+      for (let k = 0; k < 2 && !sideOK; k++) {
+        chase.target.copy(g.position).addScaledVector(side, sign * need)
+        if (Math.abs(chase.target.clone().project(cam).x) < lim) sideOK = true
+        else sign = -sign
+      }
+      if (sideOK) setTimeout(() => moves.play('dodge'), 60)
+      else { chase.target.copy(g.position); moves.play('hopOver') }
+      chase.dodge = 0.3; chase.lastDodge = chase.t; chase.dodges = (chase.dodges || 0) + 1
       if (Math.random() < 0.6) setTimeout(() => speak(lang === 'en' ? 'Missed!' : 'はずれ〜！'), 250)
     }
   }
@@ -202,7 +241,8 @@ export function createGame(api) {
     // run around (not while held)
     if (!s.grabbing && !s.carried) {
       const to = tmpV.copy(chase.target).sub(g.position); to.y = 0
-      const d = to.length(), speed = s.height * (chase.dodge > 0 ? 3.2 : 1.3)
+      const fast = chase.mode === 'challenge' ? 1 + Math.min(0.8, ch.score * 0.06) : 1
+      const d = to.length(), speed = s.height * (chase.dodge > 0 ? 4.5 : 1.3 * fast)
       if (d < s.height * 0.08) newRunTarget()
       else g.position.addScaledVector(to.normalize(), Math.min(d, speed * dt))
       if (!moves.name) moves.play('scamper')
@@ -221,6 +261,7 @@ export function createGame(api) {
           chase.hits++
           emote('surprised', 900)
           moves.play('dizzy')
+          if (chase.mode === 'challenge') { addScore(1); continue }
           if (chase.hits < CHASE_HITS) speak(lang === 'en' ? 'Hey!' : 'わっ！')
           say(`${T(WISHES.chase)} <b>${'●'.repeat(chase.hits)}${'○'.repeat(Math.max(0, CHASE_HITS - chase.hits))}</b>`)
           if (chase.hits >= CHASE_HITS) { endChase(); speak(lang === 'en' ? 'You caught me!' : 'つかまっちゃった！'); setTimeout(grant, 600); return }
@@ -231,7 +272,7 @@ export function createGame(api) {
         if (b.life > 0.3) { b.sprite.removeFromParent(); bubbles.splice(i, 1) }
       }
     }
-    if (chase.t > CHASE_S) {
+    if (chase.mode !== 'challenge' && chase.t > CHASE_S) {
       endChase(); wish = null; card.style.opacity = '0'; gap = 4
       speak(lang === 'en' ? 'I got away! Let\'s play again!' : 'にげきった〜！また遊ぼうね')
       moves.play('spinJump')
@@ -240,8 +281,81 @@ export function createGame(api) {
   // caught with the hand counts too
   window.addEventListener('handplay:grab', () => {
     if (!chase.on) return
+    if (chase.mode === 'challenge') {
+      if (chase.t - ch.lastGrab > 1.5) { ch.lastGrab = chase.t; addScore(3); emote('surprised', 900); speak(lang === 'en' ? 'Caught!' : 'つかまった〜！') }
+      return
+    }
     endChase(); speak(lang === 'en' ? 'You caught me!' : 'つかまっちゃった！'); setTimeout(grant, 300)
   })
+
+  // --- 20 s challenge: timer + score on top, the chase without a hit cap, local ranking -------------
+  const ch = { on: false, count: 0, left: 0, score: 0, lastGrab: -9 }
+  const rankKey = 'hp-rank:' + location.pathname + (new URLSearchParams(location.search).get('params') || '')
+  function loadRank() { try { return JSON.parse(localStorage.getItem(rankKey) || '[]') } catch { return [] } }
+  function saveRank(list) { try { localStorage.setItem(rankKey, JSON.stringify(list)) } catch { /* private mode */ } }
+  function plus(n, x, y) {
+    const el = document.createElement('div'); el.className = 'hp-plus'; el.textContent = '+' + n
+    el.style.left = x + 'px'; el.style.top = y + 'px'; document.body.appendChild(el)
+    requestAnimationFrame(() => requestAnimationFrame(() => { el.style.transform = 'translate(-50%,-160%) scale(1.3)'; el.style.opacity = '0' }))
+    setTimeout(() => el.remove(), 750)
+  }
+  function charScreen() {
+    const rc = getRect(), r = canvas.getBoundingClientRect()
+    return rc ? [r.left + (rc.x0 + rc.x1) / 2, r.top + rc.y0 + (rc.y1 - rc.y0) * 0.3] : [r.left + r.width / 2, r.top + r.height / 2]
+  }
+  function addScore(n) {
+    ch.score += n
+    const [x, y] = charScreen(); plus(n, x, y)
+    chime(false)
+  }
+  function startChallenge() {
+    if (ch.on) return
+    endChase(); wish = null; card.style.opacity = '0'; ringG.visible = false
+    result.style.display = 'none'; startBtn.style.display = 'none'; hud.style.display = 'none'
+    ch.on = true; ch.count = 3.2; ch.left = CHALLENGE_S; ch.score = 0
+    timer.style.display = 'block'; timer.classList.remove('hurry')
+    speak(lang === 'en' ? 'Ready? Catch me!' : 'よーい、つかまえてごらん！')
+  }
+  function finishChallenge() {
+    ch.on = false; endChase(); timer.style.display = 'none'
+    showBanner(lang === 'en' ? 'Time up!' : 'おしまい！')
+    moves.play('spinJump')
+    const list = loadRank(), me = { score: ch.score, at: Date.now() }
+    list.push(me); list.sort((a, b) => b.score - a.score || a.at - b.at)
+    const top = list.slice(0, 5); saveRank(top)
+    const rank = top.indexOf(me)
+    const fmt = (t) => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
+    result.innerHTML = `<h3>${lang === 'en' ? 'Your score' : 'スコア'}</h3><div class="big">${ch.score}</div>`
+      + `<div>${rank === 0 ? (lang === 'en' ? 'New record!' : 'しんきろく！') : rank > 0 ? (lang === 'en' ? `Rank ${rank + 1}!` : `${rank + 1}位！`) : ''}</div>`
+      + `<ol>${top.map((e, i) => `<li class="${e === me ? 'me' : ''}"><span>${i + 1}. ${fmt(e.at)}</span><b>${e.score}</b></li>`).join('')}</ol>`
+      + `<div class="btns"><button class="again">${lang === 'en' ? 'Play again' : 'もう一回'}</button><button class="close">${lang === 'en' ? 'Close' : 'とじる'}</button></div>`
+    setTimeout(() => {
+      result.style.display = 'block'
+      result.querySelector('.again').onclick = () => startChallenge()
+      result.querySelector('.close').onclick = () => { result.style.display = 'none'; startBtn.style.display = ''; hud.style.display = ''; gap = 3 }
+    }, 1400)
+    speak(lang === 'en' ? `${ch.score} points! ${rank === 0 ? 'New record!' : 'Nice!'}` : `${ch.score}てん！${rank === 0 ? 'しんきろくだよ！' : 'すごいね！'}`)
+  }
+  startBtn.addEventListener('click', (e) => { e.stopPropagation(); unlock(); startChallenge() })
+  function updateChallenge(dt, s) {
+    const sec = timer.querySelector('.sec'), sc = timer.querySelector('.sc'), bar = timer.querySelector('.bar i')
+    if (ch.count > 0) {
+      const before = Math.ceil(ch.count - 0.2)
+      ch.count -= dt
+      const now = Math.ceil(ch.count - 0.2)
+      if (now !== before) showBanner(now > 0 ? String(now) : (lang === 'en' ? 'Go!' : 'スタート！'))
+      sec.textContent = CHALLENGE_S + (lang === 'en' ? 's' : '秒'); sc.textContent = '0' + (lang === 'en' ? ' pts' : 'てん'); bar.style.width = '100%'
+      if (ch.count <= 0) { startChase(); chase.mode = 'challenge' }
+      return
+    }
+    ch.left -= dt
+    sec.textContent = Math.max(0, Math.ceil(ch.left)) + (lang === 'en' ? 's' : '秒')
+    sc.textContent = ch.score + (lang === 'en' ? ' pts' : 'てん')
+    bar.style.width = Math.max(0, ch.left / CHALLENGE_S * 100) + '%'
+    timer.classList.toggle('hurry', ch.left < 5)
+    updateChase(dt, s)
+    if (ch.left <= 0) finishChallenge()
+  }
 
   function pick(force) {
     const g = group(), cam = getCamera()
@@ -334,6 +448,12 @@ export function createGame(api) {
       ringMat.opacity = 0.65 + 0.35 * k; ringFill.material.opacity = 0.15 + 0.15 * k
       beamMat.uniforms.uT.value = t
     }
+    { const r2 = canvas.getBoundingClientRect(); startBtn.style.left = (r2.left + r2.width / 2 - startBtn.offsetWidth / 2) + 'px'; startBtn.style.top = (Math.max(r2.top, 0) + 56) + 'px'
+      timer.style.left = (r2.left + r2.width / 2) + 'px'; timer.style.top = (Math.max(r2.top, 0) + 12) + 'px'
+      // overlays centred on the camera view (in the emulator it is not the whole window)
+      for (const el of [result, banner]) { el.style.left = (r2.left + r2.width / 2) + 'px'; el.style.top = (r2.top + r2.height * (el === banner ? 0.4 : 0.5)) + 'px' } }
+    if (ch.on) { updateChallenge(dt, s); return }
+    if (result.style.display === 'block') return
     if (chase.on) { updateChase(dt, s); const bar = card.querySelector('.bar i'); if (bar) bar.style.width = Math.max(0, 100 - chase.t / CHASE_S * 100) + '%'; return }
     if (wish) {
       if (!s.talking && !s.grabbing) wishT += dt
@@ -347,9 +467,10 @@ export function createGame(api) {
 
   return {
     update,
-    get hearts() { return hearts }, get wish() { return wish }, get chasing() { return chase.on },
+    get hearts() { return hearts }, get wish() { return wish }, get chasing() { return chase.on || ch.on },
+    get score() { return ch.score }, get dodges() { return chase.dodges || 0 }, get challenge() { return ch.on }, startChallenge,
     // ask for a given wish now (tests / demo recording)
     play(k) { if (!WISHES[k]) return; endChase(); ringG.visible = false; wish = null; pick(k) },
-    stop() { hud.remove(); card.remove(); banner.remove(); ringG.removeFromParent() },
+    stop() { hud.remove(); card.remove(); banner.remove(); startBtn.remove(); timer.remove(); result.remove(); ringG.removeFromParent() },
   }
 }

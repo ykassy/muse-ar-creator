@@ -152,6 +152,15 @@ MOVES.dodge = () => [
   { t: 0.34, y: 0, sx: 1.18, sy: 0.8, ease: 'inQuad' },
   { t: 0.55, ease: 'outBack' },
 ]
+// chase: jumps over a bubble when there is no room to sidestep (up before it arrives, hangs, lands)
+MOVES.hopOver = () => [
+  { t: 0, ease: 'linear' },
+  { t: 0.06, sx: 1.15, sy: 0.82, ease: 'outQuad' },
+  { t: 0.22, y: 0.75, sx: 0.88, sy: 1.2, ease: 'outQuad' },
+  { t: 0.6, y: 0.82, sx: 0.96, sy: 1.05, ease: 'sine' },
+  { t: 0.85, y: 0, sx: 1.18, sy: 0.8, ease: 'inQuad' },
+  { t: 1.1, ease: 'outBack' },
+]
 // caught: dizzy wobble
 MOVES.dizzy = () => [
   { t: 0, ease: 'linear' },
