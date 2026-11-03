@@ -1483,6 +1483,10 @@ function checkTask(d, task, answer) {
   let idx = q.choices.findIndex((c) => normAns(c) === normAns(t));
   if (idx < 0) { const m = /^(?:([1-4])|([a-d]))[).]?$/i.exec(t); if (m) idx = m[1] ? +m[1] - 1 : m[2].toLowerCase().charCodeAt(0) - 97; }
   if (idx < 0) idx = q.choices.findIndex((c) => normAns(c).length > 2 && normAns(t).includes(normAns(c)));
+  if (idx < 0 && normAns(t).length > 2) {   // "Sunflower!" for "Sunflower mascot": one choice contains the answer
+    const hit = q.choices.map((c, k) => normAns(c).includes(normAns(t)) ? k : -1).filter((k) => k >= 0);
+    if (hit.length === 1) idx = hit[0];
+  }
   if (idx < 0 || idx >= q.choices.length) return { ok: false, unclear: true, explain: '' };
   const ok = sha(d.salt, String(idx)) === q.a;
   return { ok, explain: ok ? q.explain || '' : '', line: ok ? q.ok : q.ng };
