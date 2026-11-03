@@ -1,0 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { parseSamText, decodeOneBitMask } from '../api/sam.mjs';
+const FIX = '/home/hatch/workspace/hackathon-ar-creator/tools/sam-fixture';
+const text = readFileSync(FIX + '/sam_text.txt', 'utf-8');
+const rec = parseSamText(text);
+console.log('parsed:', JSON.stringify({ box: rec.box, maskW: rec.maskW, maskH: rec.maskH, confidence: rec.confidence, payloadLen: rec.payload.length }));
+const raster = decodeOneBitMask(rec.payload, rec.maskW, rec.maskH);
+const py = readFileSync(FIX + '/sam_raster_py.bin');
+let diff = 0;
+for (let i = 0; i < raster.length; i++) if (raster[i] !== py[i]) diff++;
+console.log('JS raster bytes:', raster.length, '| diffs vs python:', diff, '| coverage:', (raster.reduce((a, b) => a + b, 0) / raster.length).toFixed(3));

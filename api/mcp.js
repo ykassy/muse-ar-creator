@@ -9,6 +9,7 @@ import { createHmac } from 'node:crypto';
 import { inflateSync, deflateSync } from 'node:zlib';
 import { z } from 'zod';
 import { buildGlb } from './glb.mjs';
+import { parseSamText, decodeOneBitMask } from './sam.mjs';
 
 const BASE = process.env.PUBLIC_BASE_URL || 'https://hackathon-ar-creator.vercel.app';
 const SECRET = process.env.CARD_SECRET || '';
@@ -22,6 +23,7 @@ const ASSET_STORE_URL = process.env.ASSET_STORE_URL || 'https://hackar-s.com/api
 const API_BASE = 'https://api.meta.ai/v1';
 const SPARK_MODEL = 'muse-spark-1.3';
 const IMAGE_MODEL = 'muse-image-1.0';
+const SAM_MODEL = 'sam-3.1';
 
 // Published effects are the five real Ultra Elements spells only (verified in
 // the production player). Sprite particles (smoke/petal/bubble/...) are never
@@ -87,7 +89,17 @@ const cardArg = z.string().optional().describe('前のツールの structuredCon
 const nickArg = z.string().optional().describe('ユーザーの呼び名（毎回同じものを入れる）');
 
 // ---- Meta Model API ----
+// 会話の言語：テーマに日本語が含まれれば 'ja'、そうでなければ 'en'。
+// キャラの名前・性格・会話言語（HACKAR:S の talkLang）はこれに合わせる。
+const langOf = (theme) => /[぀-ヿ一-鿿]/.test(String(theme || '')) ? 'ja' : 'en';
 async function fetchSpark(theme) {
+  const lang = langOf(theme);
+  const nameLine = lang === 'en'
+    ? '- "name": the character\'s own name in English, at most 16 characters'
+    : '- "name": the character\'s own name in Japanese, at most 10 characters';
+  const personaLine = lang === 'en'
+    ? '- "persona": the character\'s personality in English, 1-2 short sentences (it speaks in this voice when poked)'
+    : '- "persona": the character\'s personality in Japanese, 1-2 short sentences (it speaks in this voice when poked)';
   const res = await fetch(`${API_BASE}/chat/completions`, {
     method: 'POST',
     headers: { 'authorization': `Bearer ${MODEL_API_KEY}`, 'content-type': 'application/json' },
@@ -99,7 +111,7 @@ async function fetchSpark(theme) {
       max_tokens: 2500,
       messages: [
         { role: 'system', content: 'You are an AR experience composer for an app-less WebAR product. Reply with ONE JSON object only, no markdown, no code fences, no commentary.' },
-        { role: 'user', content: `Compose a small AR character for the theme: "${theme}".\nReturn JSON with exactly these keys:\n- "title": a short English title, at most 5 words\n- "text": one English line shown over the camera view, at most 90 characters\n- "color": one base color as #RRGGBB that matches the mood\n- "effect": one of "lightning", "fire", "frozen-lightning", "starfall", "light" — the magic spell this character casts; pick the one that best matches the theme\n- "name": the character's own name in Japanese, at most 10 characters\n- "persona": the character's personality in Japanese, 1-2 short sentences (it speaks in this voice when poked)\n- \"action\": one short English sentence describing how the character moves in a seamless in-place loop` },
+        { role: 'user', content: `Compose a small AR character for the theme: "${theme}".\nReturn JSON with exactly these keys:\n- "title": a short English title, at most 5 words\n- "text": one English line shown over the camera view, at most 90 characters\n- "color": one base color as #RRGGBB that matches the mood\n- "effect": one of "lightning", "fire", "frozen-lightning", "starfall", "light" — the magic spell this character casts; pick the one that best matches the theme\n${nameLine}\n${personaLine}\n- \"action\": one short English sentence describing how the character moves in a seamless in-place loop` },
       ],
     }),
   });
@@ -1146,8 +1158,9 @@ function certPage(tok) {
 h1{font-size:15px;letter-spacing:.35em;color:#d4af37;margin:0 0 6px}p{line-height:1.8;margin:6px 0;color:#cfc9bb}.title{font-size:24px;font-weight:900;color:#fff;margin:14px 0 2px}.theme{font-size:14px}.row{margin-top:16px;font-size:13px;color:#9d968a}.seal{margin:18px auto 4px;width:64px;height:64px;border-radius:50%;border:1.5px solid #d4af37;display:grid;place-items:center;font-size:24px;color:#d4af37}</style></head>
 <body><div class="card"><h1>CERTIFICATE</h1><p>AR 制作証明</p><div class="seal">✦</div>
 <div class="title">${esc(p.ti)}</div><p class="theme">theme: ${esc(p.th)}</p>
-<p>この AR は Muse との会話から生まれ、<br>Meta Model API（Muse Spark / Muse Image）で<br>構成・生成されました。</p>
-${p.us ? `<div class="row">Meta Model API usage（実行証跡）<br>${p.us.s ? `muse-spark-1.3： ${p.us.s.total ?? '?'} トークン（入力 ${p.us.s.in ?? '?'} / 出力 ${p.us.s.out ?? '?'}）<br>` : ''}${p.us.i ? `muse-image-1.0： ${p.us.i.total ?? '?'} トークン（入力 ${p.us.i.in ?? '?'} / 出力 ${p.us.i.out ?? '?'}）` : ''}</div>` : ''}
+<p>この AR は Muse との会話から生まれ、<br>Meta Model API（Muse Spark / Muse Image）で<br>構成・生成されました。<br>HACKAR:S の中で、話しかけたり、ごはんをあげて<br>育てたり、一緒に遊べるキャラクターとして生き続けます。</p>
+<p style="font-size:12px;color:#9d968a">Born from a conversation with Muse, composed and generated with the Meta Model API (Muse Spark / Muse Image), and published to HACKAR:S — a living character you can talk to, feed, raise and play with.</p>
+${p.us ? `<div class="row">Meta Model API usage（実行証跡）<br>${p.us.s ? `muse-spark-1.3： ${p.us.s.total ?? '?'} トークン（入力 ${p.us.s.in ?? '?'} / 出力 ${p.us.s.out ?? '?'}）<br>` : ''}${p.us.i ? `muse-image-1.0： ${p.us.i.total ?? '?'} トークン（入力 ${p.us.i.in ?? '?'} / 出力 ${p.us.i.out ?? '?'}）<br>` : ''}${p.us.a ? `sam-3.1： 切り抜き（セグメンテーション）${p.us.a.calls ?? '?'} 回実行` : ''}</div>` : ''}
 ${p.h ? `<div class="row">作品（HACKAR:S）<br><a href="${esc(p.h)}" style="color:#7ab8ff">${esc(p.h)}</a></div>` : ''}
 <div class="row">creator: ${esc(p.n)}<br>date: ${esc(p.d)}<br>Talk to Muse, unlock AR — HACK IT INC.</div></div></body></html>`;
   return new Response(html, { status: 200, headers: htmlHeaders() });
@@ -1164,6 +1177,7 @@ const VOICE = 'AR Creator は、ユーザーが Muse との会話で AR（カメ
   + '進め方は3つだけ：① start_create で参加の確認とテーマを聞く（テーマはユーザー本人の言葉をそのまま渡す。あなたが勝手にテーマを決めない）'
   + '② テーマが決まったら compose_ar を呼ぶ（AR の中身の構成はサーバー側のモデルが行う）'
   + '③ compose の結果（キャラ名・性格・魔法）を伝え、publish_ar で HACKAR:S（hackar-s.com）に公開した URL を成果物として渡す。最後に issue_certificate で制作証明を出す。compose が返すプレビューURLのようなものは無いので、公開前の確認用URLは作らない。'
+  + '公開されたキャラは「置いて終わり」ではなく、HACKAR:S の中で生きている：つまんで持ち上げる、つつくと性格のままに返事をする（声でも話す）、足元の浮かぶボタン（ごはん／あそぶ／おはなし／なでる）で育てると成長する、おねがいゲームと20秒チャレンジで遊べる、作品ごとの共通ランキングがある。公開後にユーザーへ伝えるときは、この「話せる・育てられる・遊べる」を短く紹介する。'
   + '案内役としてユーザーを迷わせないこと：テーマに迷っていたら例を3つ提案する。各ステップでは、次にできることを短い選択肢で提示して選んでもらう（考えさせるだけの質問で終わらせない）。公開できたら、制作証明を出すか、動きやエフェクトを変えた別バージョンを作るか、新しいテーマで作るかを提案する。'
   + 'ツールが返した URL・タイトル・トークン数の要約は、中身を変えずに伝える。'
   + 'リンクの統一ルール：ユーザーが開く AR のリンクは hackar-s.com の URL だけ。ビューアの URL は内部プレビュー用で、成果物として渡さない。HACKAR:S への公開に失敗したときは、別の URL に差し替えず、失敗したこと自体をそのまま伝える。';
@@ -1222,13 +1236,21 @@ const FACE_PROMPTS = {
   sad: 'Change ONLY the facial expression of the character to sad: droopy eyebrows, teary eyes, a small downturned mouth. Keep everything else - pose, body, colors, background, art style - exactly the same.',
   angry: 'Change ONLY the facial expression of the character to angry: angled eyebrows, puffed cheeks, a pouting mouth. Keep everything else - pose, body, colors, background, art style - exactly the same.',
 };
+// 表情の絵はプレイヤー側が切り出して GLB の絵に合わせて貼るので、
+// 余白込みのまま長辺 512px に縮めてから置く（1枚 1.6MB → 約200KB 狙い）。
+function shrinkFace(img) {
+  const scale = Math.min(1, 512 / Math.max(img.w, img.h));
+  if (scale >= 1) return img;
+  return scaleRgba(img, Math.max(1, Math.round(img.w * scale)), Math.max(1, Math.round(img.h * scale)));
+}
 async function makeFaces(rawPngBuf, keyedBuf, keyCh) {
   const faces = {};
   try {
-    const neutralUrl = await storeAsset('png', keyedBuf);
+    const base = decodePng(keyedBuf); // the silhouette to re-cut every variant with
+    const nSmall = shrinkFace(base);
+    const neutralUrl = await storeAsset('png', encodePng(nSmall.w, nSmall.h, nSmall.rgba));
     if (neutralUrl) faces.neutral = neutralUrl;
     if (!MODEL_API_KEY || !rawPngBuf) return faces;
-    const base = decodePng(keyedBuf); // the silhouette to re-cut every variant with
     const rawB64 = rawPngBuf.toString('base64');
     const jobs = Object.entries(FACE_PROMPTS).map(async ([emotion, prompt]) => {
       try {
@@ -1244,7 +1266,8 @@ async function makeFaces(rawPngBuf, keyedBuf, keyCh) {
           out[i * 4] = v.rgba[i * 4]; out[i * 4 + 1] = v.rgba[i * 4 + 1]; out[i * 4 + 2] = v.rgba[i * 4 + 2];
           out[i * 4 + 3] = base.rgba[i * 4 + 3];
         }
-        const url = await storeAsset('png', encodePng(base.w, base.h, out));
+        const small = shrinkFace({ w: base.w, h: base.h, rgba: out });
+        const url = await storeAsset('png', encodePng(small.w, small.h, small.rgba));
         if (url) faces[emotion] = url;
       } catch { /* one missing face is fine */ }
     });
@@ -1252,6 +1275,68 @@ async function makeFaces(rawPngBuf, keyedBuf, keyCh) {
   } catch { /* expressions are optional */ }
   console.log('[AR] faces', JSON.stringify({ made: Object.keys(faces), lastEditStatus }));
   return faces;
+}
+
+// ---- SAM 3.1 切り抜き ----
+// 生成画像（不透明化して渡す）から "cartoon character" のマスクを取り、
+// クロマキーより綺麗な輪郭が得られたときだけ差し替える。安全弁：カバー率が
+// 異常、またはクロマキーの輪郭と大きく食い違う（IoU < 0.5）ときはクロマキーのまま。
+async function callSamCutout(rawPngBuf, chromaBuf) {
+  try {
+    const raw = decodePng(rawPngBuf);
+    const opaque = new Uint8Array(raw.w * raw.h * 4);
+    for (let i = 0; i < raw.w * raw.h; i++) {
+      opaque[i * 4] = raw.rgba[i * 4]; opaque[i * 4 + 1] = raw.rgba[i * 4 + 1]; opaque[i * 4 + 2] = raw.rgba[i * 4 + 2]; opaque[i * 4 + 3] = 255;
+    }
+    const dataUrl = 'data:image/png;base64,' + Buffer.from(encodePng(raw.w, raw.h, opaque)).toString('base64');
+    const res = await fetch(`${API_BASE}/responses`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${MODEL_API_KEY}`, 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(90_000),
+      body: JSON.stringify({
+        model: SAM_MODEL,
+        metadata: { mask_encoding: 'one_bit', include_confidence: 'true' },
+        input: [{ type: 'message', role: 'user', content: [
+          { type: 'input_text', text: 'cartoon character' },
+          { type: 'input_image', image_url: dataUrl },
+        ] }],
+      }),
+    });
+    if (!res.ok) { console.log('[AR] sam-failed', JSON.stringify({ status: res.status })); return null; }
+    const data = await res.json();
+    const processed = data?.usage?.images_processed || 0;
+    const text = (data?.output || []).map((o) => (o?.content || []).map((c) => c?.text || '').join('')).join('');
+    const rec = parseSamText(text);
+    if (!rec) { console.log('[AR] sam-nomatch', JSON.stringify({ processed, textLen: text.length })); return null; }
+    const raster = decodeOneBitMask(rec.payload, rec.maskW, rec.maskH);
+    const maskRgba = new Uint8Array(rec.maskW * rec.maskH * 4);
+    for (let i = 0; i < rec.maskW * rec.maskH; i++) maskRgba[i * 4 + 3] = raster[i] ? 255 : 0;
+    const bw = Math.max(1, rec.box.x2 - rec.box.x1 + 1), bh = Math.max(1, rec.box.y2 - rec.box.y1 + 1);
+    const scaled = scaleRgba({ w: rec.maskW, h: rec.maskH, rgba: maskRgba }, bw, bh);
+    const out = new Uint8Array(raw.rgba);
+    const total = raw.w * raw.h;
+    for (let i = 0; i < total; i++) out[i * 4 + 3] = 0;
+    for (let y = 0; y < bh; y++) {
+      const cy = rec.box.y1 + y; if (cy < 0 || cy >= raw.h) continue;
+      for (let x = 0; x < bw; x++) {
+        const cx = rec.box.x1 + x; if (cx < 0 || cx >= raw.w) continue;
+        out[(cy * raw.w + cx) * 4 + 3] = scaled.rgba[(y * bw + x) * 4 + 3];
+      }
+    }
+    const chroma = decodePng(chromaBuf);
+    let samIn = 0, both = 0, either = 0;
+    for (let i = 0; i < total; i++) {
+      const s = out[i * 4 + 3] > 127, c = chroma.rgba[i * 4 + 3] > 127;
+      if (s) samIn++;
+      if (s && c) both++;
+      if (s || c) either++;
+    }
+    const coverage = samIn / total;
+    const iou = either ? both / either : 0;
+    console.log('[AR] sam-cutout', JSON.stringify({ processed, coverage: +coverage.toFixed(3), iou: +iou.toFixed(3), confidence: rec.confidence }));
+    if (coverage < 0.03 || coverage > 0.92 || iou < 0.5) return null;
+    return { buf: encodePng(raw.w, raw.h, out), processed };
+  } catch (e) { console.log('[AR] sam-error', JSON.stringify({ error: String(e?.message || e).slice(0, 120) })); return null; }
 }
 
 function buildServer() {
@@ -1295,15 +1380,16 @@ function buildServer() {
 
   server.registerTool('compose_ar', {
     title: 'ARの中身を組み立てる',
-    description: 'テーマからARキャラ（名前・性格・見た目・魔法）をサーバー側の Meta モデルで組み立て、半立体の3Dモデル（厚み・影・動き付き）まで作る。テーマが決まったら呼ぶ。ユーザーが魔法を指定していなければ、呼ぶ前に短く聞いてもよい：魔法は「おまかせ」「雷」「炎」「氷の稲妻」「星の魔法陣」「光の柱」のどれか。聞き直しはしない（言われなければおまかせで呼ぶ）。返ってきた要約（キャラ名・性格・魔法・どのモデルが何トークン使ったか）をユーザーに伝え、公開するか聞くこと。成果物のURLは publish_ar が返す hackar-s.com のURLだけ（プレビューURLは出さない）。',
+    description: 'テーマからARキャラ（名前・性格・見た目・魔法）をサーバー側の Meta モデルで組み立て、半立体の3Dモデル（厚み・影・感情の動きと表情付き）まで作る。公開後は HACKAR:S の中で「話せる・育てられる・遊べる」キャラクターになる（つつくと返事、ボタンでごはん/あそぶ/おはなし/なでる、成長、おねがいゲーム、20秒チャレンジ、共通ランキング）。テーマが決まったら呼ぶ。ユーザーが魔法を指定していなければ、呼ぶ前に短く聞いてもよい：魔法は「おまかせ」「雷」「炎」「氷の稲妻」「星の魔法陣」「光の柱」のどれか。聞き直しはしない（言われなければおまかせで呼ぶ）。返ってきた要約（キャラ名・性格・魔法・どのモデルが何トークン使ったか）をユーザーに伝え、公開するか聞くこと。成果物のURLは publish_ar が返す hackar-s.com のURLだけ（プレビューURLは出さない）。',
     inputSchema: {
       nickname: nickArg,
       theme: z.string().optional().describe('テーマ（一言）。前に start_create で受け取っていれば省略可'),
       effect: z.enum(['auto', 'lightning', 'fire', 'frozen-lightning', 'starfall', 'light']).optional().describe('魔法：auto=おまかせ（既定）、lightning=雷、fire=炎、frozen-lightning=氷の稲妻、starfall=星の魔法陣、light=光の柱'),
+      talkLang: z.enum(['ja', 'en']).optional().describe('キャラの会話言語（名前・性格・AR内での返事）。省略時はテーマの言語から自動判定'),
       card: cardArg,
     },
     annotations: { title: 'ARの中身を組み立てる', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  }, async ({ nickname, theme, effect, card }) => {
+  }, async ({ nickname, theme, effect, talkLang, card }) => {
     const u = getU(nickname, card);
     if (!u.agreed) {
       return { content: [{ type: 'text', text: 'まだ参加の確認ができてないみたい。先に start_create で「いいよ」をもらってね。' }], structuredContent: { needsAgreement: true, card: packCard(u) } };
@@ -1314,7 +1400,7 @@ function buildServer() {
     }
     const th = u.theme;
     let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [], transparentApplied = false;
-    let glbUrl = null, glbAspect = null, faces = {}, rawPngBuf = null, keyedBuf = null, keyCh = 1;
+    let glbUrl = null, glbAspect = null, faces = {}, rawPngBuf = null, keyedBuf = null, keyCh = 1, samUsage = null;
     if (MODEL_API_KEY) {
       try {
         const r = await callSpark(th);
@@ -1343,6 +1429,11 @@ function buildServer() {
     } else {
       notes.push('APIキー未設定のためテンプレート構成です');
     }
+    // SAM 3.1 のマスクが使えれば、クロマキーの輪郭を差し替える（GLB・表情の前に）。
+    if (keyedBuf && rawPngBuf && MODEL_API_KEY) {
+      const sam = await callSamCutout(rawPngBuf, keyedBuf);
+      if (sam) { keyedBuf = sam.buf; samUsage = { calls: 1 }; }
+    }
     if (!comp) comp = fallbackComp(th);
     if (effect && effect !== 'auto') comp.effect = effect;
     const action = comp.action || '';
@@ -1361,14 +1452,14 @@ function buildServer() {
       try { faces = await makeFaces(rawPngBuf, keyedBuf, keyCh); } catch { faces = {}; }
     }
 
-    const usage = (sparkUsage || imageUsage) ? { s: normUsage(sparkUsage), i: normUsage(imageUsage) } : null;
+    const usage = (sparkUsage || imageUsage || samUsage) ? { s: normUsage(sparkUsage), i: normUsage(imageUsage), ...(samUsage ? { a: samUsage } : {}) } : null;
     u.usage = usage;
     const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-    const arTok = packTok({ i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona });
+    const arTok = packTok({ i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
     u.arTok = arTok; u.arId = arId; u.certTok = null;
     const spell = spellOf(comp.effect);
     const summary = usedModel
-      ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}）`
+      ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}${samUsage ? '／切り抜きは SAM 3.1' : ''}）`
       : 'テンプレート構成で組み立てました（モデル未使用）';
     const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き）で組み立てたよ。\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\nこのまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。`;
     console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
@@ -1406,7 +1497,7 @@ function buildServer() {
           name: p.ti || 'Muse AR',
           modelGlbUrl: glbUrl,
           ultraFx: { spell: spell.spell, ...(spell.form ? { form: spell.form } : {}) },
-          handPlay: { talkName: p.nm || '', talkPersona: p.ps || '', talkLang: 'ja' },
+          handPlay: { talkName: p.nm || '', talkPersona: p.ps || '', talkLang: p.lg || langOf(p.th || '') },
         };
         if (aspect) body.modelAspect = aspect;
         if (p.f && Object.keys(p.f).length) body.expressions = p.f;
@@ -1436,7 +1527,7 @@ function buildServer() {
       };
     }
     const qr = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(hackars.url)}`;
-    const text = `公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。つまんで持ち上げたり、つついて話しかけたり、手のひらから魔法を撃ったりできるよ。\n${hackars.url}\n\nQRコード用リンク：\n${qr}\n\n次はどうする？「制作証明を出す」「魔法を変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`;
+    const text = `公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。つまんで持ち上げたり、つついて話しかけたり（声でも返事するよ）、足元のボタンで「ごはん」「あそぶ」「おはなし」「なでる」をして育てたりできるよ。おねがいゲームや20秒チャレンジ、みんなのランキングもあるよ。\n${hackars.url}\n\nQRコード用リンク：\n${qr}\n\n次はどうする？「制作証明を出す」「魔法を変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`;
     return {
       content: [{ type: 'text', text }],
       structuredContent: { url: hackars.url, publishFailed: false, qr, hackarsUrl: hackars.url, hackarsProjectId: hackars.projectId, card: packCard(u) },
@@ -1458,7 +1549,7 @@ function buildServer() {
     const p = readTok(u.arTok) || {};
     const ef = effect || p.e || 'lightning';
     const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-    const arTok = packTok({ i: arId, ti: p.ti, tx: p.tx, c: p.c, e: ef, th: p.th, im: p.im, us: p.us, bg: p.bg, mo: p.mo, ac: p.ac, g: p.g, asp: p.asp, f: p.f, nm: p.nm, ps: p.ps });
+    const arTok = packTok({ i: arId, ti: p.ti, tx: p.tx, c: p.c, e: ef, th: p.th, im: p.im, us: p.us, bg: p.bg, mo: p.mo, ac: p.ac, g: p.g, asp: p.asp, f: p.f, nm: p.nm, ps: p.ps, lg: p.lg });
     u.arTok = arTok; u.arId = arId; u.hackarsUrl = null; u.hackarsProjectId = null; u.certTok = null;
     const text = `変えたよ！魔法：${spellOf(ef).label}\nこのまま publish_ar で新しい公開リンクを出すね。`;
     return { content: [{ type: 'text', text }], structuredContent: { title: p.ti, effect: ef, card: packCard(u) } };
