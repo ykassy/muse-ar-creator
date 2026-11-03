@@ -2,8 +2,7 @@
 // closed: saved per work on this device), care raises them and earns friendship XP; levels make it
 // grow. The UI lives in space next to the character, not on the screen (AR-glasses ready): a status
 // panel over its head and four floating buttons - food / play / talk / pet. Press a button by tapping
-// it on screen, or with your hand: aim the index fingertip at it and flick the finger (an air tap),
-// or hold the fingertip on it for a moment.
+// it on screen, or with your hand: point with the index finger and touch it with the fingertip.
 
 const ICONS = { food: 1, play: 1, talk: 1, pet: 1 }   // ids of the floating buttons (drawn as pictograms)
 const FOODS = ['🍎', '🍙', '🍪', '🍓', '🍩']
@@ -14,7 +13,6 @@ const LABELS = {
 }
 const HUNGER_PER_S = 1 / 40, MOOD_PER_S = 1 / 60   // 100 -> 0 in about 67 min / 100 min
 const AWAY_CAP = 60                                  // at most this much lost while the page was closed
-const DWELL_S = 1.2                                  // fingertip held on a button this long = press (the air tap is quicker)
 const xpFor = (lv) => 20 + lv * 15                   // XP to go from lv to lv + 1
 const growthOf = (lv) => Math.min(1.3, 0.8 + (lv - 1) * 0.06)
 
@@ -43,11 +41,14 @@ export function createPet(api) {
   const font = (w, px) => `${w} ${px}px -apple-system, "Hiragino Sans", sans-serif`
 
   // status panel over the head
+  // The panel and buttons are placed in 3D (they follow the character and scale with distance) but
+  // drawn as page elements above every canvas: the spell layer is its own canvas over the AR view and
+  // would otherwise wash over them.
+  const uiStyle = { position: 'fixed', left: '0', top: '0', transform: 'translate(-50%,-50%)', zIndex: 55, display: 'none', willChange: 'transform' }
   const pc = document.createElement('canvas'); pc.width = 512; pc.height = 200
-  const ptex = new THREE.CanvasTexture(pc); ptex.colorSpace = THREE.SRGBColorSpace
-  const panel = new THREE.Sprite(new THREE.SpriteMaterial({ map: ptex, transparent: true, depthWrite: false, depthTest: false }))
-  panel.renderOrder = 997
-  scene.add(panel)
+  Object.assign(pc.style, uiStyle, { pointerEvents: 'none' }); document.body.appendChild(pc)
+  const ptex = { needsUpdate: false }
+  const panel = new THREE.Object3D()
   function drawPanel() {
     const x = pc.getContext('2d')
     x.clearRect(0, 0, 512, 200)
@@ -73,11 +74,13 @@ export function createPet(api) {
   // four floating buttons
   const buttons = Object.keys(ICONS).map((id) => {
     const c = document.createElement('canvas'); c.width = c.height = 256
-    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false }))
-    sp.renderOrder = 998
-    scene.add(sp)
+    Object.assign(c.style, uiStyle, { pointerEvents: 'auto', touchAction: 'manipulation', cursor: 'pointer' }); document.body.appendChild(c)
+    const tex = { needsUpdate: false }
+    const sp = new THREE.Object3D()   // where the button is in space; c is what is drawn
     const b = { id, sp, c, tex, hover: 0, pressT: 0 }
+    // tap on the phone screen
+    c.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); window.__hpUiTapAt = performance.now(); press(b) })
+    for (const ev of ['touchstart', 'touchend', 'click']) c.addEventListener(ev, (e) => e.stopPropagation(), { passive: ev !== 'click' })
     drawButton(b)
     return b
   })
@@ -113,7 +116,7 @@ export function createPet(api) {
     if (b.aim) {                 // the fingertip is on it: glow so you know what you are about to press
       x.lineWidth = 12; x.strokeStyle = 'rgba(255,255,255,0.9)'; x.beginPath(); x.arc(128, 112, 101, 0, Math.PI * 2); x.stroke()
     }
-    if (b.hover > 0) {           // hold-to-press progress (the fallback when tapping is hard)
+    if (b.hover > 0) {           // the short touch before it counts
       x.lineWidth = 12; x.strokeStyle = '#ffe45c'; x.lineCap = 'round'
       x.beginPath(); x.arc(128, 112, 101, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, b.hover)); x.stroke()
     }
@@ -149,31 +152,38 @@ export function createPet(api) {
     })
   }
 
-  // --- pressing: tap on screen, or fingertip dwell ----------------------------------------------
-  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2()
-  canvas.addEventListener('pointerdown', (e) => {
-    if (!panel.visible) return
-    const r = canvas.getBoundingClientRect()
-    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
-    ray.setFromCamera(ndc, getCamera())
-    const hit = ray.intersectObjects(buttons.filter((b) => b.sp.visible).map((b) => b.sp), false)[0]
-    if (hit) { window.__hpUiTapAt = performance.now(); press(buttons.find((b) => b.sp === hit.object)) }
-  }, true)
+  // --- pressing ---------------------------------------------------------------------------------
+  // project each 3D anchor to the page: centre + on-screen width from its world size
+  function placeEl(el, obj, worldW, aspect) {
+    if (!obj.visible) { el.style.display = 'none'; return }
+    const r = canvas.getBoundingClientRect(), cam = getCamera()
+    const p = obj.position.clone().project(cam)
+    if (p.z > 1) { el.style.display = 'none'; return }
+    const q = obj.position.clone().addScaledVector(right, worldW / 2).project(cam)
+    const w = Math.max(24, Math.abs(q.x - p.x) * r.width)
+    el.style.display = 'block'
+    el.style.width = w + 'px'; el.style.height = (w * aspect) + 'px'
+    el.style.transform = `translate(${r.left + (p.x + 1) / 2 * r.width}px, ${r.top + (1 - p.y) / 2 * r.height}px) translate(-50%,-50%)`
+  }
+  function syncDom() {
+    placeEl(pc, panel, panel.scale.x, 200 / 512)
+    for (const b of buttons) placeEl(b.c, b.sp, b.sp.scale.x, 1)
+  }
   function screenOf(obj) {
     const p = obj.position.clone().project(getCamera())
     return { x: (p.x + 1) / 2 * canvas.clientWidth, y: (1 - p.y) / 2 * canvas.clientHeight }
   }
-  // pressing with the hand: aim the index fingertip at a button (it glows), then flick the finger -
-  // bend and straighten it, an "air tap" - to press. Holding still on it also presses (slower), for
-  // hands that find the flick hard. The tap counts for the button aimed at in the last 0.45 s, since
-  // bending the finger moves its tip off the button.
-  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
-  let aimed = null, aimedAt = -1e9, extHi = 0, extHiAt = -1e9, tapCool = 0
+  // pressing with the hand: point with the index finger (others folded) and touch a button with the
+  // fingertip - it glows, and after a short touch it is pressed, like poking a button in the air. To
+  // press it again, take the finger off first. An open hand or a pinch passing over does nothing.
+  const TOUCH_S = 0.15
   const dbgState = {}
+  let touched = null, touchT = 0, lockedOn = null
   function updateDwell(dt) {
-    const h = getHand && getHand(), now = performance.now()
+    const h = getHand && getHand()
     let target = null
-    if (h && h.seen && h.indexPx && !state().grabbing) {
+    const pointing = !!(h && h.seen && h.indexPx && h.poke && !state().grabbing)
+    if (pointing) {
       for (const b of buttons) {
         if (!b.sp.visible) continue
         const c = screenOf(b.sp)
@@ -182,25 +192,18 @@ export function createPet(api) {
         if (Math.hypot(h.indexPx.x - c.x, h.indexPx.y - c.y) < rad) { target = b; break }
       }
     }
-    if (target) { aimed = target; aimedAt = now }
-    // air tap: index tip-to-wrist vs knuckle-to-wrist; straight > 1.1, bent < 1.0
-    tapCool -= dt
-    if (h && h.seen && h.lm) {
-      const lm = h.lm, ext = dist(lm[0], lm[8]) / (dist(lm[0], lm[6]) || 1e-3)
-      dbgState.ext = ext; dbgState.aimed = aimed && aimed.id; dbgState.sinceAim = now - aimedAt; dbgState.sinceHi = now - extHiAt
-      if (ext > 1.1) { extHi = ext; extHiAt = now }
-      if (ext < 1.0 && now - extHiAt < 450 && aimed && now - aimedAt < 450 && tapCool <= 0) {
-        tapCool = 0.6; extHiAt = -1e9
-        const b = aimed; aimed = null; b.hover = 0
-        press(b)
-      }
-    }
+    if (lockedOn && target !== lockedOn) lockedOn = null      // finger left the button: it can be pressed again
+    if (target && target !== lockedOn) {
+      if (touched !== target) { touched = target; touchT = 0 }
+      touchT += dt
+      if (touchT >= TOUCH_S) { lockedOn = target; touched = null; press(target) }
+    } else { touched = null; touchT = 0 }
+    dbgState.pointing = pointing; dbgState.target = target && target.id; dbgState.locked = lockedOn && lockedOn.id
     for (const b of buttons) {
-      const before = b.hover, aimBefore = b.aim
+      const aimBefore = b.aim, hoverBefore = b.hover
       b.aim = b === target
-      b.hover = b === target ? b.hover + dt / DWELL_S : Math.max(0, b.hover - dt * 3)
-      if (b === target && b.hover >= 1) { b.hover = 0; press(b) }
-      if (aimBefore !== b.aim || Math.abs(b.hover - before) > 0.02 || (before > 0 && b.hover === 0)) drawButton(b)
+      b.hover = b === touched ? Math.min(1, touchT / TOUCH_S) : 0
+      if (aimBefore !== b.aim || Math.abs(b.hover - hoverBefore) > 0.05) drawButton(b)
     }
   }
 
@@ -266,6 +269,7 @@ export function createPet(api) {
     if (saveT > 5) { saveT = 0; save(); drawPanel() }
     growthShown += (growth - growthShown) * (1 - Math.exp(-dt * 2))
     layout()
+    syncDom()
     updateDwell(dt)
     updateFoods(dt)
     for (const b of buttons) if (b.pressT > 0) { b.pressT += dt; if (b.pressT > 0.25) b.pressT = 0 }
@@ -284,9 +288,10 @@ export function createPet(api) {
     get growth() { return growthShown },
     get stats() { return { ...st } },
     get debug() { return { ...dbgState } },
+    get aiming() { return !!dbgState.target },   // fingertip on a button: hand-play skips poking the character
     // tests / demos
     set(v) { Object.assign(st, v); growth = growthOf(st.level); drawPanel(); save() },
     press(id) { press(buttons.find((b) => b.id === id)) },
-    stop() { panel.removeFromParent(); for (const b of buttons) b.sp.removeFromParent() },
+    stop() { pc.remove(); for (const b of buttons) b.c.remove() },
   }
 }

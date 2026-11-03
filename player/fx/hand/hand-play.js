@@ -205,7 +205,7 @@ export async function start(opts) {
   // raise it like a virtual pet (pet.js): hunger / mood / level, floating status panel and buttons
   let pet = null
   if (ov.handPet !== false && game) {
-    const { createPet } = await import('./pet.js?v=20261104e')
+    const { createPet } = await import('./pet.js?v=20261104g')
     pet = createPet({
       THREE, scene, getCamera, canvas, group, getRect: () => charRect(), getBox: () => (charRect() ? box : null),
       emote, moves, ov, dbg, getHand: () => hand,
@@ -490,7 +490,7 @@ export async function start(opts) {
     if (grab.on) { cursor.position.set(g.position.x, g.position.y + 0.005, g.position.z); cursor.material.opacity = 0.85 }
 
     // poke the character with the index finger: it reacts
-    if (!grab.on && hand.seen && hand.poke && inRect(hand.indexPx, rect)) {
+    if (!grab.on && hand.seen && hand.poke && inRect(hand.indexPx, rect) && !pet?.aiming) {
       if (pokeArmed) { pokeArmed = false; emit('poke', { x: hand.indexPx.x, y: hand.indexPx.y }) }
     } else if (!hand.poke) pokeArmed = true
 
