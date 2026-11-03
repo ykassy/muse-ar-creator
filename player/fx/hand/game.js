@@ -143,15 +143,72 @@ export function createGame(api) {
   // --- catch me if you can: it runs around, taps blow bubbles at it, it sometimes dodges -----------
   const chase = { on: false, t: 0, hits: 0, target: new THREE.Vector3(), home: new THREE.Vector3(), dodge: 0, lastDodge: -9 }
   const bubbles = []
+  // a bubble you can see against any floor: rainbow rim, bright highlight, soft glow
   const bubbleTex = (() => {
     const c = document.createElement('canvas'); c.width = c.height = 128
     const x = c.getContext('2d')
-    const g = x.createRadialGradient(64, 64, 20, 64, 64, 62)
-    g.addColorStop(0, 'rgba(200,240,255,0.08)'); g.addColorStop(0.75, 'rgba(170,225,255,0.28)'); g.addColorStop(0.93, 'rgba(255,255,255,0.95)'); g.addColorStop(1, 'rgba(255,255,255,0)')
-    x.fillStyle = g; x.beginPath(); x.arc(64, 64, 62, 0, Math.PI * 2); x.fill()
-    x.fillStyle = 'rgba(255,255,255,0.9)'; x.beginPath(); x.ellipse(44, 40, 14, 8, -0.6, 0, Math.PI * 2); x.fill()
+    const glow = x.createRadialGradient(64, 64, 30, 64, 64, 64)
+    glow.addColorStop(0, 'rgba(255,255,255,0)'); glow.addColorStop(0.8, 'rgba(255,255,255,0.18)'); glow.addColorStop(1, 'rgba(255,255,255,0)')
+    x.fillStyle = glow; x.fillRect(0, 0, 128, 128)
+    x.fillStyle = 'rgba(190,235,255,0.22)'; x.beginPath(); x.arc(64, 64, 50, 0, Math.PI * 2); x.fill()
+    x.lineWidth = 7
+    for (let a = 0; a < 360; a += 6) {
+      x.strokeStyle = `hsla(${a},95%,65%,0.95)`
+      x.beginPath(); x.arc(64, 64, 50, (a * Math.PI) / 180, ((a + 7) * Math.PI) / 180); x.stroke()
+    }
+    x.lineWidth = 2.5; x.strokeStyle = 'rgba(255,255,255,0.95)'; x.beginPath(); x.arc(64, 64, 54, 0, Math.PI * 2); x.stroke()
+    x.fillStyle = 'rgba(255,255,255,0.95)'; x.beginPath(); x.ellipse(46, 42, 15, 8, -0.6, 0, Math.PI * 2); x.fill()
+    x.beginPath(); x.arc(82, 84, 4, 0, Math.PI * 2); x.fill()
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t
   })()
+  const sparkTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 64
+    const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32)
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.3, 'rgba(180,240,255,0.8)'); g.addColorStop(1, 'rgba(120,200,255,0)')
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64)
+    return new THREE.CanvasTexture(c)
+  })()
+  const starTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 64
+    const x = c.getContext('2d'); x.translate(32, 32); x.fillStyle = '#fff3a0'
+    x.beginPath()
+    for (let i = 0; i < 10; i++) { const r = i % 2 ? 11 : 28, a = (i * Math.PI) / 5 - Math.PI / 2; x.lineTo(Math.cos(a) * r, Math.sin(a) * r) }
+    x.closePath(); x.shadowColor = '#ffd23f'; x.shadowBlur = 8; x.fill()
+    return new THREE.CanvasTexture(c)
+  })()
+  // short-lived sprites: the bubble's trail and the burst when it hits
+  const bits = []
+  function bit(tex, pos, size, vel, life, color) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: color || 0xffffff }))
+    sp.position.copy(pos); sp.scale.setScalar(size); scene.add(sp)
+    bits.push({ sp, vel: vel || new THREE.Vector3(), life: 0, max: life, size })
+  }
+  function updateBits(dt) {
+    for (let i = bits.length - 1; i >= 0; i--) {
+      const b = bits[i]; b.life += dt
+      const k = b.life / b.max
+      b.sp.position.addScaledVector(b.vel, dt); b.vel.multiplyScalar(Math.exp(-dt * 3)); b.vel.y -= dt * 0.6
+      b.sp.material.opacity = Math.max(0, 1 - k); b.sp.scale.setScalar(b.size * (1 - k * 0.5))
+      b.sp.material.rotation += dt * 4
+      if (k >= 1) { b.sp.removeFromParent(); b.sp.material.dispose(); bits.splice(i, 1) }
+    }
+  }
+  function burst(pos, size) {
+    for (let i = 0; i < 12; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.2, Math.random() - 0.5).normalize().multiplyScalar(size * (3 + Math.random() * 3))
+      bit(starTex, pos, size * (0.35 + Math.random() * 0.25), v, 0.6 + Math.random() * 0.3)
+    }
+    bit(sparkTex, pos, size * 2.4, null, 0.3)
+  }
+  // big text over the character: hits and dodges should read at a glance
+  function popText(text, color) {
+    const [x, y] = charScreen()
+    const el = document.createElement('div'); el.className = 'hp-plus'; el.textContent = text
+    el.style.color = color; el.style.fontSize = '30px'; el.style.left = x + 'px'; el.style.top = (y - 30) + 'px'
+    document.body.appendChild(el)
+    requestAnimationFrame(() => requestAnimationFrame(() => { el.style.transform = 'translate(-50%,-190%) scale(1.25)'; el.style.opacity = '0' }))
+    setTimeout(() => el.remove(), 750)
+  }
   const tmpV = new THREE.Vector3(), tmpC = new THREE.Vector3(), ndcV = new THREE.Vector2()
   function floorPoint(sx, sy, out) {
     const cam = getCamera(), g = group()
@@ -197,13 +254,13 @@ export function createGame(api) {
     box.getCenter(tmpC)
     const dist = Math.max(0.3, tmpC.distanceTo(cam.position))
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: bubbleTex, transparent: true, depthWrite: false }))
-    const size = Math.max(0.06, s.height * 0.22)
-    sprite.scale.setScalar(size * 0.4)
+    const size = Math.max(0.08, s.height * 0.3)
+    sprite.scale.setScalar(size * 0.5)
     // starts a little below the middle of the screen, from the phone
     const down = new THREE.Vector3(0, -1, 0).applyQuaternion(cam.quaternion)
     sprite.position.copy(cam.position).addScaledVector(dir, 0.15).addScaledVector(down, 0.05)
     scene.add(sprite)
-    bubbles.push({ sprite, vel: dir.multiplyScalar(dist / 0.55), life: 0, size, done: false })
+    bubbles.push({ sprite, vel: dir.multiplyScalar(dist / 0.55), life: 0, size, done: false, trail: 0 })
     // will it hit? the character may hop out of the way
     const toC = tmpV.copy(tmpC).sub(cam.position), along = toC.dot(ray.ray.direction)
     const closest = toC.clone().sub(ray.ray.direction.clone().multiplyScalar(along)).length()
@@ -224,8 +281,8 @@ export function createGame(api) {
         if (Math.abs(chase.target.clone().project(cam).x) < lim) sideOK = true
         else sign = -sign
       }
-      if (sideOK) setTimeout(() => moves.play('dodge'), 60)
-      else { chase.target.copy(g.position); moves.play('hopOver') }
+      if (sideOK) { setTimeout(() => moves.play('dodge'), 60); setTimeout(() => popText(lang === 'en' ? 'Dodge!' : 'ひょいっ！', '#7fe7ff'), 120) }
+      else { chase.target.copy(g.position); moves.play('hopOver'); setTimeout(() => popText(lang === 'en' ? 'Jump!' : 'ジャンプ！', '#7fe7ff'), 120) }
       chase.dodge = 0.3; chase.lastDodge = chase.t; chase.dodges = (chase.dodges || 0) + 1
       if (Math.random() < 0.6) setTimeout(() => speak(lang === 'en' ? 'Missed!' : 'はずれ〜！'), 250)
     }
@@ -255,9 +312,14 @@ export function createGame(api) {
       b.life += dt
       if (!b.done) {
         b.sprite.position.addScaledVector(b.vel, dt)
-        b.sprite.scale.setScalar(b.size * Math.min(1, 0.4 + b.life * 2.5))
+        b.sprite.scale.setScalar(b.size * Math.min(1, 0.5 + b.life * 2.5))
+        b.sprite.material.rotation = Math.sin(b.life * 9) * 0.25
+        b.trail -= dt
+        if (b.trail <= 0) { b.trail = 0.035; bit(sparkTex, b.sprite.position, b.size * 0.35, null, 0.35, 0xbfe8ff) }
         if (box && box.distanceToPoint(b.sprite.position) < b.size * 0.4) {
           b.done = true; b.life = 0
+          burst(b.sprite.position, b.size)
+          popText(lang === 'en' ? 'HIT!' : 'ヒット！', '#ffe45c')
           chase.hits++
           emote('surprised', 900)
           moves.play('dizzy')
@@ -295,7 +357,7 @@ export function createGame(api) {
   function saveRank(list) { try { localStorage.setItem(rankKey, JSON.stringify(list)) } catch { /* private mode */ } }
   function plus(n, x, y) {
     const el = document.createElement('div'); el.className = 'hp-plus'; el.textContent = '+' + n
-    el.style.left = x + 'px'; el.style.top = y + 'px'; document.body.appendChild(el)
+    el.style.left = (x + 46) + 'px'; el.style.top = (y + 10) + 'px'; document.body.appendChild(el)
     requestAnimationFrame(() => requestAnimationFrame(() => { el.style.transform = 'translate(-50%,-160%) scale(1.3)'; el.style.opacity = '0' }))
     setTimeout(() => el.remove(), 750)
   }
@@ -337,7 +399,7 @@ export function createGame(api) {
     const L = (ja, en) => (lang === 'en' ? en : ja)
     const rows = (list, mine) => list.map((e, i) => `<li class="${e.id && e.id === mine ? 'me' : ''}"><span>${i + 1}. ${esc(e.name || L('ゲスト', 'Guest'))}</span><b>${e.score}</b></li>`).join('')
     result.innerHTML = `<h3>${L('スコア', 'Your score')}</h3><div class="big">${score}</div>`
-      + `<div class="reg" style="display:flex;gap:6px;margin:10px 0 2px"><input maxlength="10" placeholder="${L('なまえ', 'Name')}" value="${esc(savedName)}" style="flex:1;min-width:0;border:1px solid #ddd;border-radius:12px;padding:9px 10px;font:600 15px -apple-system,'Hiragino Sans',sans-serif">`
+      + `<div class="reg" style="display:flex;gap:6px;margin:10px 0 2px"><input maxlength="10" placeholder="${L('なまえ', 'Name')}" value="${esc(savedName)}" style="flex:1;min-width:0;border:1px solid #ddd;border-radius:12px;padding:9px 10px;font:600 16px -apple-system,'Hiragino Sans',sans-serif">`
       + `<button class="send" style="background:#3a7bff;color:#fff">${L('ランキングに登録', 'Submit')}</button></div>`
       + `<div class="msg" style="min-height:18px;font-size:13px;color:#888"></div>`
       + `<h3 style="margin-top:6px">${L('みんなのランキング', 'Ranking')}</h3><ol class="list"><li><span>…</span></li></ol>`
@@ -345,6 +407,9 @@ export function createGame(api) {
     const listEl = result.querySelector('.list'), msg = result.querySelector('.msg'), send = result.querySelector('.send'), input = result.querySelector('input')
     // stop the AR page's touch handlers from stealing the keyboard focus
     for (const ev of ['touchstart', 'touchend', 'pointerdown', 'click']) input.addEventListener(ev, (e) => e.stopPropagation(), { passive: true })
+    // iOS pans the page up for the keyboard and may leave it there: put it back when typing ends
+    input.addEventListener('blur', () => setTimeout(() => window.scrollTo(0, 0), 60))
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); send.click() } })
     let shared = true
     rankApi().then((j) => { listEl.innerHTML = rows(j.list) || `<li><span>${L('まだだれもいないよ', 'No one yet')}</span></li>` }).catch(() => {
       // offline / no project id: the device's own top 5
@@ -491,9 +556,18 @@ export function createGame(api) {
     { const r2 = canvas.getBoundingClientRect(); startBtn.style.left = (r2.left + r2.width / 2 - startBtn.offsetWidth / 2) + 'px'; startBtn.style.top = (Math.max(r2.top, 0) + 56) + 'px'
       timer.style.left = (r2.left + r2.width / 2) + 'px'; timer.style.top = (Math.max(r2.top, 0) + 12) + 'px'
       // overlays centred on the camera view (in the emulator it is not the whole window)
-      for (const el of [result, banner]) { el.style.left = (r2.left + r2.width / 2) + 'px'; el.style.top = (r2.top + r2.height * (el === banner ? 0.4 : 0.5)) + 'px' } }
+      // ... and kept inside what is actually visible (the keyboard shrinks the visual viewport and
+      // iOS scrolls the page under it; position: fixed follows the layout viewport)
+      const vv = window.visualViewport, vt = vv ? vv.offsetTop : 0, vh = vv ? vv.height : innerHeight
+      for (const el of [result, banner]) {
+        const h = el.offsetHeight || 0
+        let y = r2.top + r2.height * (el === banner ? 0.4 : 0.5)
+        y = Math.min(vt + vh - h / 2 - 8, Math.max(vt + h / 2 + 8, y))
+        el.style.left = (r2.left + r2.width / 2) + 'px'; el.style.top = y + 'px'
+      } }
+    updateBits(dt)
     if (ch.on) { updateChallenge(dt, s); return }
-    if (result.style.display === 'block') return
+    if (result.style.display === 'block') return   // (placement above already ran)
     if (chase.on) { updateChase(dt, s); const bar = card.querySelector('.bar i'); if (bar) bar.style.width = Math.max(0, 100 - chase.t / CHASE_S * 100) + '%'; return }
     if (wish) {
       if (!s.talking && !s.grabbing) wishT += dt
