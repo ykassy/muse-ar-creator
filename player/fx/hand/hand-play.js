@@ -188,7 +188,7 @@ export async function start(opts) {
   let game = null, replyAt = -1e9
   window.addEventListener('handplay:reply', () => { replyAt = performance.now() })
   if (ov.handGame !== false) {
-    const { createGame } = await import('./game.js?v=20261103x')
+    const { createGame } = await import('./game.js?v=20261103y')
     game = createGame({
       THREE, scene, getCamera, canvas, group, getRect: () => charRect(), getBox: () => (charRect() ? box : null), emote, moves, ov, dbg,
       state: () => {

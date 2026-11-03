@@ -316,25 +316,65 @@ export function createGame(api) {
     timer.style.display = 'block'; timer.classList.remove('hurry')
     speak(lang === 'en' ? 'Ready? Catch me!' : 'よーい、つかまえてごらん！')
   }
+  // shared ranking per project (/api/ar-rank on hackar-s.com), local top 5 as the fallback
+  const projectId = (location.href.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) || [])[0] || ''
+  const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+  async function rankApi(body) {
+    if (!projectId) throw new Error('no project')
+    const res = await fetch(body ? '/api/ar-rank' : '/api/ar-rank?project=' + projectId, body
+      ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: projectId, ...body }) }
+      : { cache: 'no-store' })
+    const j = await res.json()
+    if (!res.ok) throw new Error(j.error || res.status)
+    return j
+  }
   function finishChallenge() {
     ch.on = false; endChase(); timer.style.display = 'none'
     showBanner(lang === 'en' ? 'Time up!' : 'おしまい！')
     moves.play('spinJump')
-    const list = loadRank(), me = { score: ch.score, at: Date.now() }
-    list.push(me); list.sort((a, b) => b.score - a.score || a.at - b.at)
-    const top = list.slice(0, 5); saveRank(top)
-    const rank = top.indexOf(me)
-    const fmt = (t) => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
-    result.innerHTML = `<h3>${lang === 'en' ? 'Your score' : 'スコア'}</h3><div class="big">${ch.score}</div>`
-      + `<div>${rank === 0 ? (lang === 'en' ? 'New record!' : 'しんきろく！') : rank > 0 ? (lang === 'en' ? `Rank ${rank + 1}!` : `${rank + 1}位！`) : ''}</div>`
-      + `<ol>${top.map((e, i) => `<li class="${e === me ? 'me' : ''}"><span>${i + 1}. ${fmt(e.at)}</span><b>${e.score}</b></li>`).join('')}</ol>`
-      + `<div class="btns"><button class="again">${lang === 'en' ? 'Play again' : 'もう一回'}</button><button class="close">${lang === 'en' ? 'Close' : 'とじる'}</button></div>`
+    const score = ch.score
+    let savedName = ''; try { savedName = localStorage.getItem('hp-name') || '' } catch { /* private mode */ }
+    const L = (ja, en) => (lang === 'en' ? en : ja)
+    const rows = (list, mine) => list.map((e, i) => `<li class="${e.id && e.id === mine ? 'me' : ''}"><span>${i + 1}. ${esc(e.name || L('ゲスト', 'Guest'))}</span><b>${e.score}</b></li>`).join('')
+    result.innerHTML = `<h3>${L('スコア', 'Your score')}</h3><div class="big">${score}</div>`
+      + `<div class="reg" style="display:flex;gap:6px;margin:10px 0 2px"><input maxlength="10" placeholder="${L('なまえ', 'Name')}" value="${esc(savedName)}" style="flex:1;min-width:0;border:1px solid #ddd;border-radius:12px;padding:9px 10px;font:600 15px -apple-system,'Hiragino Sans',sans-serif">`
+      + `<button class="send" style="background:#3a7bff;color:#fff">${L('ランキングに登録', 'Submit')}</button></div>`
+      + `<div class="msg" style="min-height:18px;font-size:13px;color:#888"></div>`
+      + `<h3 style="margin-top:6px">${L('みんなのランキング', 'Ranking')}</h3><ol class="list"><li><span>…</span></li></ol>`
+      + `<div class="btns"><button class="again">${L('もう一回', 'Play again')}</button><button class="close">${L('とじる', 'Close')}</button></div>`
+    const listEl = result.querySelector('.list'), msg = result.querySelector('.msg'), send = result.querySelector('.send'), input = result.querySelector('input')
+    // stop the AR page's touch handlers from stealing the keyboard focus
+    for (const ev of ['touchstart', 'touchend', 'pointerdown', 'click']) input.addEventListener(ev, (e) => e.stopPropagation(), { passive: true })
+    let shared = true
+    rankApi().then((j) => { listEl.innerHTML = rows(j.list) || `<li><span>${L('まだだれもいないよ', 'No one yet')}</span></li>` }).catch(() => {
+      // offline / no project id: the device's own top 5
+      shared = false
+      const list = loadRank(), me = { score, at: Date.now(), id: 'local' + Date.now() }
+      list.push(me); list.sort((a, b) => b.score - a.score || a.at - b.at)
+      const top = list.slice(0, 5); saveRank(top)
+      result.querySelector('.reg').style.display = 'none'
+      result.querySelectorAll('h3')[1].textContent = L('このスマホのランキング', 'On this phone')
+      listEl.innerHTML = rows(top.map((e) => ({ ...e, name: e.name || L('じぶん', 'Me') })), me.id)
+    })
+    send.onclick = async () => {
+      if (!shared) return
+      send.disabled = true; msg.textContent = L('とうろく中…', 'Sending…')
+      const name = input.value.trim()
+      try { localStorage.setItem('hp-name', name) } catch { /* private mode */ }
+      try {
+        const j = await rankApi({ name, score })
+        listEl.innerHTML = rows(j.list, j.id)
+        result.querySelector('.reg').style.display = 'none'
+        msg.textContent = j.rank === 0 ? L('1位！しんきろく！', 'New record! #1') : j.rank >= 0 && j.rank < 10 ? L(`${j.rank + 1}位！`, `#${j.rank + 1}!`) : L('とうろくしたよ', 'Submitted')
+        if (j.rank === 0) { chime(true); speak(L('いちいだよ！すごい！', 'Number one! Amazing!')) }
+      } catch (e) { msg.textContent = L('とうろくできなかった…', 'Could not submit'); send.disabled = false }
+    }
     setTimeout(() => {
       result.style.display = 'block'
       result.querySelector('.again').onclick = () => startChallenge()
       result.querySelector('.close').onclick = () => { result.style.display = 'none'; startBtn.style.display = ''; hud.style.display = ''; gap = 3 }
     }, 1400)
-    speak(lang === 'en' ? `${ch.score} points! ${rank === 0 ? 'New record!' : 'Nice!'}` : `${ch.score}てん！${rank === 0 ? 'しんきろくだよ！' : 'すごいね！'}`)
+    speak(L(`${score}てん！すごいね！`, `${score} points! Nice!`))
   }
   startBtn.addEventListener('click', (e) => { e.stopPropagation(); unlock(); startChallenge() })
   function updateChallenge(dt, s) {
