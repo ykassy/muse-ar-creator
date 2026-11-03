@@ -87,8 +87,12 @@ export function createTalk({ THREE, getCamera, canvas, content, getRect, ov = {}
   document.body.appendChild(wrap)
   const ico = btn.querySelector('.hp-ico'), label = btn.querySelector('.hp-label'), prog = btn.querySelector('.hp-prog')
   const bars = [...btn.querySelectorAll('.hp-bars i')]
+  let btnHidden = false
   function setState(s, text) {
     btn.dataset.s = s
+    // with the pet's floating talk button, the fixed button only appears while a talk is going on,
+    // so "listening / thinking / talking" (with the mic level and time left) is always visible
+    if (btnHidden) btnBox.style.display = s === 'idle' ? 'none' : ''
     ico.innerHTML = s === 'listen' ? ICON.stop : s === 'speak' ? ICON.speaker : ICON.mic
     label.textContent = text || { idle: L('話しかける', 'Talk'), listen: L('聞いてるよ', 'Listening'), think: L('考え中', 'Thinking'), speak: L('おしゃべり中', 'Talking') }[s]
     if (s !== 'listen') { prog.style.width = '0'; bars.forEach(b => { b.style.height = '4px' }) }
@@ -279,7 +283,7 @@ export function createTalk({ THREE, getCamera, canvas, content, getRect, ov = {}
   return {
     unlock, poke, update, get busy() { return busy },
     // the pet's floating talk button replaces the on-screen one (what you said still shows)
-    hideButton() { btnBox.style.display = 'none' },
+    hideButton() { btnHidden = true; if (btn.dataset.s === 'idle') btnBox.style.display = 'none' },
     stop() { bubble.remove(); wrap.remove(); stream?.getTracks().forEach(t => t.stop()) },
   }
 }

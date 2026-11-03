@@ -266,7 +266,7 @@ export function createPet(api) {
     x.fillText(FOODS[Math.floor(Math.random() * FOODS.length)], 64, 70)
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }))
-    sp.position.copy(b.sp.position); sp.scale.setScalar(state().height * 0.22)
+    sp.position.copy(b.sp.position); sp.scale.setScalar(state().height * 0.4)
     scene.add(sp)
     foods.push({ sp, from: b.sp.position.clone(), t: 0 })
   }

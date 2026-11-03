@@ -169,7 +169,7 @@ export async function start(opts) {
   // talk: the talk button (talk.js). A tap anywhere also unlocks the mic / voice for iOS
   let talk = null
   if (ov.handTalk !== false) {
-    const { createTalk } = await import('./talk.js?v=20261104k')
+    const { createTalk } = await import('./talk.js?v=20261104s')
     talk = createTalk({ THREE, getCamera, canvas, content, getRect: () => charRect(), ov, dbg })
     // talking starts only from the talk button; a poke (finger or tap on the character) just makes it react
     window.addEventListener('handplay:poke', () => { if (!talk.busy && !game?.chasing) emote('happy', 1500) })
@@ -205,7 +205,7 @@ export async function start(opts) {
   // raise it like a virtual pet (pet.js): hunger / mood / level, floating status panel and buttons
   let pet = null
   if (ov.handPet !== false && game) {
-    const { createPet } = await import('./pet.js?v=20261104r')
+    const { createPet } = await import('./pet.js?v=20261104s')
     pet = createPet({
       THREE, scene, getCamera, canvas, group, getRect: () => charRect(), getBox: () => (charRect() ? box : null),
       emote, moves, ov, dbg, getHand: () => hand,
@@ -287,13 +287,18 @@ export async function start(opts) {
   }
   // shadow matrices relative to the group, taken once at rest; each frame they follow the travel
   // offset on the floor and fade / shrink with the height
+  // They are moved out of the character onto the group: under the character they inherited its tilt and
+  // squash (non-uniform scale + rotation = shear), which threw the blob off the floor while touched.
   const mOff = new THREE.Matrix4()
+  let shadowList = []
   function restShadowRel(c, g) {
     g.updateMatrixWorld(true)
     mA.copy(g.matrixWorld).invert()
-    for (const o of shadows(c)) {
+    shadowList = shadows(c)
+    for (const o of shadowList) {
       o.userData._hpRest = { op: o.material.opacity }
       o.userData._hpRel = mA.clone().multiply(o.matrixWorld)
+      g.attach(o)
       // the baked blob sits exactly at floor height, where the floor / shadow-catcher plane is too:
       // it lost the depth test and vanished. Draw it just above and after the floor.
       o.material.polygonOffset = true; o.material.polygonOffsetFactor = -4; o.material.polygonOffsetUnits = -4
@@ -304,11 +309,10 @@ export async function start(opts) {
   }
   function pinShadows(c, g, heightWorld, ox, oz) {
     mOff.makeTranslation(ox, 0.004 / (g.scale.y || 1), oz)   // ~4 mm above the floor
-    for (const o of shadows(c)) {
+    for (const o of shadowList) {
       const u = o.userData
-      if (!u._hpRel) continue
-      mA.multiplyMatrices(g.matrixWorld, mOff).multiply(u._hpRel)
-      mB.copy(o.parent.matrixWorld).invert().multiply(mA)
+      if (!u._hpRel || o.parent !== g) continue
+      mB.multiplyMatrices(mOff, u._hpRel)
       mB.decompose(o.position, o.quaternion, o.scale)
       const f = Math.max(0.25, 1 - heightWorld / 0.9)
       o.scale.multiplyScalar(0.6 + 0.4 * f)
