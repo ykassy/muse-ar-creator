@@ -774,7 +774,7 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character' }) {
       { name: 'EdgeSolid', pbrMetallicRoughness: { baseColorFactor: edgeLin, roughnessFactor: 0.34, metallicFactor: 0 },
         emissiveFactor: [edgeLin[0] * 0.18, edgeLin[1] * 0.18, edgeLin[2] * 0.18] },
       { name: 'BlobShadow', pbrMetallicRoughness: { baseColorTexture: { index: 1 }, baseColorFactor: [0, 0, 0, 1], roughnessFactor: 1, metallicFactor: 0 },
-        alphaMode: 'BLEND' },
+        alphaMode: 'BLEND', doubleSided: true },
     ],
     textures: [{ source: 0 }, { source: 1 }],
     images: [
