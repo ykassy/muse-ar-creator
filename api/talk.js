@@ -75,7 +75,8 @@ async function handle(request) {
   const origin = request.headers.get('origin');
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(origin) });
   if (request.method !== 'POST') return json({ error: 'POST only' }, 405, origin);
-  if (origin && !ALLOWED.test(origin)) return json({ error: 'origin not allowed' }, 403, origin);
+  // only the HACKAR:S player may spend the model credit (a browser always sends Origin on this POST)
+  if (!origin || !ALLOWED.test(origin)) return json({ error: 'origin not allowed' }, 403, origin);
   if (!MODEL_API_KEY) return json({ error: 'model api key is not configured' }, 503, origin);
   let body;
   try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400, origin); }

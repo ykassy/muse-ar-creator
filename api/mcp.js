@@ -1527,7 +1527,7 @@ function buildServer() {
     const summary = usedModel
       ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}${samUsage ? '／切り抜きは SAM 3.1' : ''}${check ? `／仕上がりは Muse Spark が目で確認（${redrawn ? `${check.before.score}点で不合格→描き直して${check.score}点` : `${check.score}点${check.ok ? 'で合格' : '・時間内に直せず'}`}、${usageText('Spark', checkUsage)}）` : ''}）`
       : 'テンプレート構成で組み立てました（モデル未使用）';
-    const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き）で組み立てたよ。\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\nこのまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。`;
+    const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n${glbUrl ? `厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き${Object.keys(faces).length ? `、表情${Object.keys(faces).length}種` : ''}）で組み立てたよ。` : '3Dモデルはまだできていないよ（公開のときにもう一度組み立てるね）。'}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\nこのまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。`;
     console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
     return {
       content: [{ type: 'text', text }],
