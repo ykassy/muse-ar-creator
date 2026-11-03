@@ -299,7 +299,17 @@ export async function start(opts) {
   function restShadowRel(c, g) {
     g.updateMatrixWorld(true)
     mA.copy(g.matrixWorld).invert()
-    shadowList = shadows(c)
+    // a shadow-catcher plane standing upright (the image-tracking layout: it lies in the picture's plane)
+    // cuts through the character and catches its live shadow as a black silhouette behind it - the
+    // blob already gives the floor shadow, so upright catchers are hidden
+    const nrm = new THREE.Vector3()
+    shadowList = shadows(c).filter((o) => {
+      if (!o.material?.isShadowMaterial) return true
+      nrm.set(0, 0, 1).transformDirection(o.matrixWorld)
+      if (Math.abs(nrm.y) >= 0.7) return true
+      o.visible = false
+      return false
+    })
     for (const o of shadowList) {
       o.userData._hpRest = { op: o.material.opacity }
       o.userData._hpRel = mA.clone().multiply(o.matrixWorld)
