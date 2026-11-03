@@ -539,6 +539,10 @@ const normUsage = (u) => {
   const total = u.total_tokens ?? (((inp ?? 0) + (out ?? 0)) || null);
   return { in: inp, out, total };
 };
+const usageTextEn = (label, usage) => {
+  const n = normUsage(usage);
+  return n ? `${label}: ${n.total ?? '?'} tokens (in ${n.in ?? '?'} / out ${n.out ?? '?'})` : `${label}: no token count`;
+};
 const usageText = (label, usage) => {
   const n = normUsage(usage);
   return n
@@ -1436,7 +1440,7 @@ function buildServer() {
     if (!u.ownerId) { u.ownerId = mintOwnerId(); users.set(u.ownerId, u); }
     if (!agreed && !u.agreed) {
       return {
-        content: [{ type: 'text', text: 'AR、一緒に作ろう！\nその前にひとつだけ。呼び名と、作りたいテーマ、作ったARの情報だけを AR Creator に預けるね。それ以外は渡さないよ。\n\n「いいよ」で始めよう。どんなARにしたい？テーマを一言で教えて。' }],
+        content: [{ type: 'text', text: langOf(theme || u.theme) === 'en' ? 'Let\'s make an AR character together!\nOne thing first: AR Creator only keeps your nickname, your theme and the AR you make. Nothing else is shared.\n\nSay "OK" to start. What should it be? Tell me a theme in a few words — a character, a brand or an IP.' : 'AR、一緒に作ろう！\nその前にひとつだけ。呼び名と、作りたいテーマ、作ったARの情報だけを AR Creator に預けるね。それ以外は渡さないよ。\n\n「いいよ」で始めよう。どんなARにしたい？テーマを一言で教えて。' }],
         structuredContent: { needsAgreement: true, shares: ['呼び名', 'テーマ', '作ったARの情報'], card: packCard(u) },
       };
     }
@@ -1444,12 +1448,12 @@ function buildServer() {
     if (theme) u.theme = String(theme).slice(0, 60);
     if (!u.theme) {
       return {
-        content: [{ type: 'text', text: 'ありがとう！じゃあ、どんなARにする？テーマを一言で教えて。迷ったらこの中から選んでもOK：「焚き火の精霊」「月夜のたぬき」「推しの誕生日ケーキ」。もちろん別のテーマでも大丈夫だよ。' }],
+        content: [{ type: 'text', text: langOf(theme || u.theme) === 'en' ? 'Thanks! What should we make? Give me a theme in a few words — for example "a bonfire spirit", "a moonlit tanuki" or your own brand character.' : 'ありがとう！じゃあ、どんなARにする？テーマを一言で教えて。迷ったらこの中から選んでもOK：「焚き火の精霊」「月夜のたぬき」「推しの誕生日ケーキ」。もちろん別のテーマでも大丈夫だよ。' }],
         structuredContent: { needsTheme: true, card: packCard(u) },
       };
     }
     return {
-      content: [{ type: 'text', text: `テーマは「${u.theme}」だね。そのまま compose_ar で中身を組み立てて。` }],
+      content: [{ type: 'text', text: langOf(u.theme) === 'en' ? `The theme is "${u.theme}". Go ahead and call compose_ar to build it.` : `テーマは「${u.theme}」だね。そのまま compose_ar で中身を組み立てて。` }],
       structuredContent: { theme: u.theme, ready: true, card: packCard(u) },
     };
   });
@@ -1564,10 +1568,15 @@ function buildServer() {
     const summary = usedModel
       ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}${samUsage ? '／切り抜きは SAM 3.1' : ''}${check ? `／仕上がりは Muse Spark が目で確認（${redrawn ? `${check.before.score}点で不合格→描き直して${check.score}点` : `${check.score}点${check.ok ? 'で合格' : '・時間内に直せず'}`}、${usageText('Spark', checkUsage)}）` : ''}）`
       : 'テンプレート構成で組み立てました（モデル未使用）';
+    const en = (talkLang || langOf(th)) === 'en';
+    const summaryEn = usedModel
+      ? `Composed by Muse Spark (${usageTextEn('Spark', sparkUsage)}${imgId ? `; artwork by Muse Image (${usageTextEn('Image', imageUsage)})` : ''}${samUsage ? '; cut out by SAM 3.1' : ''}${check ? `; Muse Spark checked the result with vision (${redrawn ? `${check.before.score}/10 failed → redrawn → ${check.score}/10` : `${check.score}/10${check.ok ? ', passed' : ', could not fix in time'}`}; ${usageTextEn('Spark', checkUsage)})` : ''})`
+      : 'Built from the template (no model used)';
+    const textEn = `Done! "${comp.title}"\n${comp.text}\nName: ${comp.name} / Personality: ${comp.persona}\nSpell: ${spell.id} / Base color: ${comp.color}\n${glbUrl ? `A semi-3D model with thickness and a shadow (hops, talks, can be picked up${Object.keys(faces).length ? `, ${Object.keys(faces).length} expressions` : ''}).` : 'The 3D model is not ready yet (it will be rebuilt when publishing).'}\n${summaryEn}\n\nPublish it? (You get a hackar-s.com link.) Want a different spell? Just say so.`;
     const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n${glbUrl ? `厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き${Object.keys(faces).length ? `、表情${Object.keys(faces).length}種` : ''}）で組み立てたよ。` : '3Dモデルはまだできていないよ（公開のときにもう一度組み立てるね）。'}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\nこのまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。`;
     console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
     return {
-      content: [{ type: 'text', text }],
+      content: [{ type: 'text', text: en ? textEn : text }],
       structuredContent: { title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: packCard(u) },
     };
   });
@@ -1630,9 +1639,10 @@ function buildServer() {
       };
     }
     const qr = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(hackars.url)}`;
+    const textEn = `Published! It is now a real HACKAR:S project. Open it on a phone and the character stands on your floor — no app. Pinch it to pick it up, press Talk and speak to it (it answers out loud), ask it to jump or show its magic and it does, or show your palm to make it cast its spell.\n${hackars.url}\n\nQR code link:\n${qr}\n\nNext: "make a quiz, riddles and a stamp rally with it", "try another spell" or "start a new theme".`;
     const text = `公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。指でつまんで持ち上げたり、「おはなし」を押して話しかけたりできるよ（声で返事するよ）。「ジャンプして」「魔法を見せて」と頼むと、その通りに動くよ。手のひらを見せると魔法を使うよ。\n${hackars.url}\n\nQRコード用リンク：\n${qr}\n\n次はどうする？「制作証明を出す」「魔法を変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`;
     return {
-      content: [{ type: 'text', text }],
+      content: [{ type: 'text', text: (readTok(u.arTok) || {}).lg === 'en' ? textEn : text }],
       structuredContent: { url: hackars.url, publishFailed: false, qr, hackarsUrl: hackars.url, hackarsProjectId: hackars.projectId, card: packCard(u) },
     };
   });
@@ -1719,8 +1729,10 @@ function buildServer() {
       u.playUrl = playUrl;
       console.log('[AR] play-made', JSON.stringify({ nickname: u.nickname, id, kinds: want, quiz: quiz.length, riddle: riddle.length, spots: spotsOut.length, usage: gen.usage }));
       const names = { quiz: `クイズ${quiz.length}問`, riddle: `なぞとき${riddle.length}つ`, rally: `スタンプラリー${spotsOut.length}か所` };
+      const namesEn = { quiz: `a ${quiz.length}-question quiz`, riddle: `${riddle.length} riddles`, rally: `a ${spotsOut.length}-spot stamp rally` };
+      const textEn = `Done! "${data.title}"\n${p.nm} hosts ${want.map((k) => namesEn[k]).join(', ')}. Clear everything to meet ${p.nm} in AR.\nPlay page:\n${playUrl}\n${want.includes('rally') ? `QR sheet for the stamp rally (print it and put each code at its spot):\n${playUrl}?print=1\n` : ''}\nWritten by Muse Spark (${usageTextEn('Spark', gen.usage)})`;
       const text = `できたよ！「${data.title}」\n${want.map((k) => names[k]).join('・')}で、${p.nm}が司会をするよ。ぜんぶクリアすると、${p.nm}に AR で会えるよ。\n遊ぶページ：\n${playUrl}\n${want.includes('rally') ? `スタンプラリーのQRシート（印刷して各スポットに貼ってね）：\n${playUrl}?print=1\n` : ''}\nMuse Spark が作りました（${usageText('Spark', gen.usage)}）`;
-      return { content: [{ type: 'text', text }], structuredContent: { url: playUrl, qrSheet: want.includes('rally') ? `${playUrl}?print=1` : null, kinds: want, sparkUsage: gen.usage, card: packCard(u) } };
+      return { content: [{ type: 'text', text: lang === 'en' ? textEn : text }], structuredContent: { url: playUrl, qrSheet: want.includes('rally') ? `${playUrl}?print=1` : null, kinds: want, sparkUsage: gen.usage, card: packCard(u) } };
     } catch (e) {
       console.log('[AR] play-failed', JSON.stringify({ error: String(e?.message || e) }));
       return { content: [{ type: 'text', text: '遊びを作るのに失敗しちゃった。もう一度「遊びを作って」と言ってね。' }], structuredContent: { failed: true, card: packCard(u) } };
