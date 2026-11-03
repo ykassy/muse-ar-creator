@@ -71,6 +71,17 @@ async function reply({ heard, name, persona, lang, history }) {
   throw new Error('spark returned empty content');
 }
 
+// ---- 使いすぎ防止：IP ごと 10分で30回、全体（このインスタンス）で1時間に400回まで ----
+// Origin は偽れるので、これが Meta のクレジットを守る本当の柵。TALK_PAUSED=1 で止まる。
+const hits = new Map();
+function allow(key, max, windowMs) {
+  const now = Date.now(), a = (hits.get(key) || []).filter((t) => now - t < windowMs);
+  if (a.length >= max) { hits.set(key, a); return false; }
+  a.push(now); hits.set(key, a);
+  if (hits.size > 5000) hits.delete(hits.keys().next().value);
+  return true;
+}
+
 async function handle(request) {
   const origin = request.headers.get('origin');
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(origin) });
@@ -78,6 +89,8 @@ async function handle(request) {
   // only the HACKAR:S player may spend the model credit (a browser always sends Origin on this POST)
   if (!origin || !ALLOWED.test(origin)) return json({ error: 'origin not allowed' }, 403, origin);
   if (!MODEL_API_KEY) return json({ error: 'model api key is not configured' }, 503, origin);
+  const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
+  if (process.env.TALK_PAUSED === '1' || !allow(ip, 30, 600_000) || !allow('*', 400, 3600_000)) return json({ error: 'busy' }, 429, origin);
   let body;
   try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400, origin); }
   if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'body must be a JSON object' }, 400, origin);
@@ -98,7 +111,7 @@ async function handle(request) {
     return json({ heard, reply: r.text, emotion: r.emotion, action: r.action, models: { asr: body.audio ? ASR_MODEL : null, spark: SPARK_MODEL, effort: r.effort }, usage: r.usage }, 200, origin);
   } catch (e) {
     console.log('[TALK] error', JSON.stringify({ error: String(e?.message || e), ms: Date.now() - t0 }));
-    return json({ error: 'talk failed', detail: String(e?.message || e).slice(0, 200) }, 502, origin);
+    return json({ error: 'talk failed' }, 502, origin);
   }
 }
 

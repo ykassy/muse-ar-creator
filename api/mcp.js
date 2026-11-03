@@ -85,8 +85,8 @@ async function storeAsset(kind, buf) {
     return r.ok && j.url ? j.url : null;
   } catch { return null; }
 }
-const cardArg = z.string().optional().describe('前のツールの structuredContent にある card（HC1. で始まる文字列）。あればそのまま入れる');
-const nickArg = z.string().optional().describe('ユーザーの呼び名（毎回同じものを入れる）');
+const cardArg = z.string().max(20000).optional().describe('前のツールの structuredContent にある card（HC1. で始まる文字列）。あればそのまま入れる');
+const nickArg = z.string().max(40).optional().describe('ユーザーの呼び名（毎回同じものを入れる）');
 
 // ---- Meta Model API ----
 // 会話の言語：テーマに日本語が含まれれば 'ja'、そうでなければ 'en'。
@@ -1658,6 +1658,35 @@ async function logRequest(request) {
 // ブラウザで /mcp を開いた人には、エラーの代わりに案内ページを出す
 const isBrowser = (request) => request.method === 'GET' && !(request.headers.get('accept') || '').includes('text/event-stream');
 
+// ---- 使いすぎ防止：お金のかかる道具（モデル呼び出し・本番への公開）に回数の上限をかける ----
+// Muse 経由の呼び出しは同じ IP から来ることが多いので、IP ごとは緩め、全体（このインスタンス）で締める。
+// AR_PAUSED=1 にすると、お金のかかる道具だけ止まる（ページ表示などはそのまま）。
+const COSTLY = { compose_ar: [20, 60], publish_ar: [30, 90], remix_ar: [30, 90] };   // [IP ごと, 全体] / 1時間
+const hits = new Map();
+function allow(key, max, windowMs = 3600_000) {
+  const now = Date.now(), a = (hits.get(key) || []).filter((t) => now - t < windowMs);
+  if (a.length >= max) { hits.set(key, a); return false; }
+  a.push(now); hits.set(key, a);
+  if (hits.size > 5000) hits.delete(hits.keys().next().value);
+  return true;
+}
+async function overLimit(request) {
+  let body;
+  try { body = await request.clone().json(); } catch { return null; }
+  const calls = (Array.isArray(body) ? body : [body]).filter((m) => m && m.method === 'tools/call' && COSTLY[m.params?.name]);
+  if (!calls.length) return null;
+  const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || request.headers.get('x-real-ip') || 'unknown';
+  for (const m of calls) {
+    const name = m.params.name, [perIp, all] = COSTLY[name];
+    const paused = process.env.AR_PAUSED === '1';
+    if (paused || !allow(`${name}:${ip}`, perIp) || !allow(`${name}:*`, all)) {
+      console.log('[AR] limited', JSON.stringify({ tool: name, paused }));
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: m.id ?? null, result: { content: [{ type: 'text', text: paused ? 'いまAR作りはお休み中だよ。また少しあとで試してね。' : 'いま混み合っているみたい。少し時間をおいて、もう一度試してね。' }], isError: true } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+  }
+  return null;
+}
+
 async function handle(request) {
   const url = new URL(request.url);
   const arTok = url.searchParams.get('ar');
@@ -1671,7 +1700,7 @@ async function handle(request) {
   if (request.method === 'GET' && certTok) return certPage(certTok);
   if (request.method === 'GET' && imgId) return imgResponse(imgId);
   if (isBrowser(request)) return browserPage();
-  if (request.method === 'POST') await logRequest(request);
+  if (request.method === 'POST') { await logRequest(request); const lim = await overLimit(request); if (lim) return lim; }
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   const server = buildServer();
   await server.connect(transport);
