@@ -12,8 +12,29 @@ const MODEL = '/external/mediapipe-models/hand_landmarker.task'
 const PINCH_ON = 0.32, PINCH_OFF = 0.5    // thumb-index gap / hand size, with hysteresis
 const DETECT_HZ = 15, LOST_MS = 400
 
+// The AR canvas is stretched over the window with CSS object-fit. When its drawing buffer has another
+// shape than the window (phones turned sideways) the picture is scaled and cropped, so every screen
+// position here is measured on the drawn picture, not on the canvas box.
+function drawnArea(el) {
+  let fit = null
+  const rect = () => {
+    const r = el.getBoundingClientRect(), bw = el.width, bh = el.height
+    if (fit === null) fit = getComputedStyle(el).objectFit || 'fill'
+    if (!bw || !bh || !r.width || !r.height || (fit !== 'cover' && fit !== 'contain')) return r
+    const s = (fit === 'cover' ? Math.max : Math.min)(r.width / bw, r.height / bh), w = bw * s, h = bh * s
+    const left = r.left + (r.width - w) / 2, top = r.top + (r.height - h) / 2
+    return { left, top, width: w, height: h, right: left + w, bottom: top + h, x: left, y: top }
+  }
+  return {
+    el, getBoundingClientRect: rect,
+    get clientWidth() { return rect().width }, get clientHeight() { return rect().height },
+    addEventListener: (...a) => el.addEventListener(...a), removeEventListener: (...a) => el.removeEventListener(...a),
+  }
+}
+
 export async function start(opts) {
-  const { THREE, marker, getCamera, scene, canvas, ov = {}, dbg = () => {} } = opts
+  const { THREE, marker, getCamera, scene, ov = {}, dbg = () => {} } = opts
+  const canvas = drawnArea(opts.canvas)
   const vision = await import(`${MP}/vision_bundle.mjs`)
   const files = await vision.FilesetResolver.forVisionTasks(`${MP}/wasm`)
   let landmarker
