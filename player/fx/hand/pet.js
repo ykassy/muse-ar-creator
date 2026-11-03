@@ -188,20 +188,22 @@ export function createPet(api) {
   // pressing with the hand: touch a button with the index fingertip - it glows, and after a short touch
   // it is pressed, like poking a button in the air. To press it again, take the finger off first.
   // No hand-shape check: pointing at something in AR points the finger away from the camera, so it
-  // looks short and never reads as "extended". Only a pinch (carrying) never presses.
+  // looks short - never "extended", and its tip lands next to the thumb, so it even reads as a pinch.
+  // Only while actually carrying the character are buttons ignored (hand-play doesn't start a carry
+  // while the fingertip is on a button).
   const TOUCH_S = 0.25
   const dbgState = {}
   let touched = null, touchT = 0, lockedOn = null
   function updateDwell(dt) {
     const h = getHand && getHand()
     let target = null
-    const pointing = !!(h && h.seen && h.indexPx && !h.pinch && !state().grabbing)
+    const pointing = !!(h && h.seen && h.indexPx && !state().grabbing)
     if (pointing) {
       for (const b of buttons) {
         if (!b.sp.visible) continue
         const c = screenOf(b.sp)
         const edge = screenOf({ position: b.sp.position.clone().addScaledVector(right, b.sp.scale.x * 0.45) })
-        const rad = Math.max(34, Math.hypot(edge.x - c.x, edge.y - c.y) * 1.15)
+        const rad = Math.max(44, Math.hypot(edge.x - c.x, edge.y - c.y) * 1.2)   // stays touchable when zoomed out
         if (Math.hypot(h.indexPx.x - c.x, h.indexPx.y - c.y) < rad) { target = b; break }
       }
     }

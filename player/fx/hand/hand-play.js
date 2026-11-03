@@ -205,7 +205,7 @@ export async function start(opts) {
   // raise it like a virtual pet (pet.js): hunger / mood / level, floating status panel and buttons
   let pet = null
   if (ov.handPet !== false && game) {
-    const { createPet } = await import('./pet.js?v=20261104l')
+    const { createPet } = await import('./pet.js?v=20261104m')
     pet = createPet({
       THREE, scene, getCamera, canvas, group, getRect: () => charRect(), getBox: () => (charRect() ? box : null),
       emote, moves, ov, dbg, getHand: () => hand,
@@ -339,7 +339,7 @@ export async function start(opts) {
     const input = inj ? { w: inj.w || 390, h: inj.h || 844 } : src ? { data: src, w: src.width, h: src.height } : frame
     if (!input) return
     lastDetect = now
-    const res = inj ? { landmarks: inj.lm ? [inj.lm] : [] } : landmarker.detectForVideo(input.data, now)
+    const res = inj ? { landmarks: inj.lm && inj.lm.length ? [inj.lm] : [] } : landmarker.detectForVideo(input.data, now)
     const lm = res.landmarks && res.landmarks[0]
     if (!lm) { if (now - hand.lastSeen > LOST_MS) hand.seen = false; return }
     hand.seen = true; hand.lastSeen = now; hand.lm = lm
@@ -397,7 +397,8 @@ export async function start(opts) {
     }
 
     // pinch: pick up / carry / drop
-    if (!grab.on && hand.seen && hand.pinch && over && p && ov.handGrab !== false) {
+    // (a fingertip on a floating button is pressing it, not picking the character up)
+    if (!grab.on && hand.seen && hand.pinch && over && p && ov.handGrab !== false && !pet?.aiming) {
       // whatever move it was in, it is caught where it is: fold the travel / hop into the carry
       const mp = moves.pose
       if (H && (mp.x || mp.z || mp.y)) {
