@@ -58,7 +58,7 @@ export function createGame(api) {
   const { THREE, scene, getCamera, canvas, group, getRect, getBox, state, emote, moves, ov = {}, dbg = () => {} } = api
   const lang = ov.talkLang === 'en' ? 'en' : 'ja'
   const T = (o) => o[lang]
-  let hearts = 0, level = 0, wish = null, wishT = 0, gap = 4, last = '', voiceOK = false
+  let hearts = 0, level = 0, wish = null, wishT = 0, gap = 4, last = '', voiceOK = false, pet = null
 
   if (!document.getElementById('hp-game-css')) {
     const st = document.createElement('style'); st.id = 'hp-game-css'; st.textContent = CSS; document.head.appendChild(st)
@@ -288,7 +288,7 @@ export function createGame(api) {
     }
   }
   canvas.addEventListener('pointerdown', (e) => {
-    if (!chase.on) return
+    if (!chase.on || performance.now() - (window.__hpUiTapAt || 0) < 300) return
     const r = canvas.getBoundingClientRect()
     shoot((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height)
   })
@@ -392,6 +392,7 @@ export function createGame(api) {
   }
   function finishChallenge() {
     ch.on = false; endChase(); timer.style.display = 'none'
+    if (pet) pet.gain(Math.min(40, ch.score * 2), 0, 20)
     showBanner(lang === 'en' ? 'Time up!' : 'おしまい！')
     moves.play('spinJump')
     const score = ch.score
@@ -437,7 +438,7 @@ export function createGame(api) {
     setTimeout(() => {
       result.style.display = 'block'
       result.querySelector('.again').onclick = () => startChallenge()
-      result.querySelector('.close').onclick = () => { result.style.display = 'none'; startBtn.style.display = ''; hud.style.display = ''; gap = 3 }
+      result.querySelector('.close').onclick = () => { result.style.display = 'none'; if (!pet) { startBtn.style.display = ''; hud.style.display = '' } gap = 3 }
     }, 1400)
     speak(L(`${score}てん！すごいね！`, `${score} points! Nice!`))
   }
@@ -503,19 +504,21 @@ export function createGame(api) {
     const was = wish
     wish = null; card.style.opacity = '0'; ringG.visible = false
     hearts++
-    const up = hearts === LEVELS[level]
-    if (up) level++
+    // with the pet the wish feeds its friendship XP / mood (and the pet announces level-ups)
+    const up = pet ? false : hearts === LEVELS[level]
+    if (pet) pet.gain(5, 0, 8)
+    else if (up) level++
     drawHud()
-    flyHeart()
+    if (!pet) flyHeart()
     chime(up)
     emote('happy', 2500)
-    if (window.__ultraFx) window.__ultraFx.cast()
+    if (window.__ultraFx && (up || !pet)) window.__ultraFx.cast()
     const thanks = THANKS[lang][Math.floor(Math.random() * THANKS[lang].length)]
     if (up) {
       setTimeout(() => { moves.play('bigJump'); showBanner(lang === 'en' ? `Friend level ${level + 1}!` : `なかよしレベル ${level + 1}！`) }, 1700)
       speak(thanks + (lang === 'en' ? ' We are better friends now!' : ' もっとなかよしになったね！'))
     } else speak(thanks)
-    gap = up ? 6 : 3.5 + Math.random() * 2
+    gap = pet ? 25 + Math.random() * 15 : up ? 6 : 3.5 + Math.random() * 2
     dbg('Game: granted ' + was + ' hearts=' + hearts)
   }
 
@@ -536,16 +539,17 @@ export function createGame(api) {
     const g = group()
     if (!g || !g.parent) return
     const s = state()
-    if (!started) { if (s.ready) { started = true; gap = 3.5 } else return }
+    if (!started) { if (s.ready) { started = true; gap = pet ? 20 : 3.5 } else return }
     // card over the character's head (the talk bubble takes that place while it talks)
     const rc = getRect(), r = canvas.getBoundingClientRect()
     hud.style.left = (r.left + r.width / 2) + 'px'; hud.style.top = (Math.max(r.top, 0) + 14) + 'px'
-    if (wish && rc) {
+    if ((wish || card.style.opacity === '1') && rc) {
       const hidden = s.talking
       card.style.opacity = hidden ? '0' : '1'
       const half = card.offsetWidth / 2 + 8
       card.style.left = Math.min(r.right - half, Math.max(r.left + half, r.left + (rc.x0 + rc.x1) / 2)) + 'px'
-      card.style.top = Math.max(Math.max(r.top, 0) + card.offsetHeight + 60, r.top + rc.y0 - 6) + 'px'
+      // above the pet's floating status panel when there is one
+      card.style.top = Math.max(Math.max(r.top, 0) + card.offsetHeight + 60, r.top + rc.y0 - 6 - (pet ? (rc.x1 - rc.x0) * 0.32 : 0)) + 'px'
       const bar = card.querySelector('.bar i'); if (bar) bar.style.width = Math.max(0, 100 - wishT / GIVE_UP_S * 100) + '%'
     }
     if (ringG.visible) {
@@ -582,6 +586,11 @@ export function createGame(api) {
   return {
     update,
     get hearts() { return hearts }, get wish() { return wish }, get chasing() { return chase.on || ch.on },
+    // the pet takes over the hearts HUD and the start button; these let it talk through the game's card
+    setPet(p) { pet = p; hud.style.display = 'none'; startBtn.style.display = 'none'; gap = 20 },
+    say(text, ms = 3500) { card.innerHTML = text; card.style.opacity = '1'; speak(text); clearTimeout(this._sayT); this._sayT = setTimeout(() => { if (!wish) card.style.opacity = '0' }, ms) },
+    pop(text, color = '#ffe45c') { popText(text, color) },
+    celebrate(lv) { chime(true); setTimeout(() => { moves.play('bigJump'); showBanner(lang === 'en' ? `Level ${lv}! It grew!` : `レベル${lv}！おおきくなった！`) }, 600); if (window.__ultraFx) window.__ultraFx.cast(); speak(lang === 'en' ? 'Level up! I grew!' : 'レベルアップ！おおきくなったよ！') },
     get score() { return ch.score }, get dodges() { return chase.dodges || 0 }, get challenge() { return ch.on }, startChallenge,
     // ask for a given wish now (tests / demo recording)
     play(k) { if (!WISHES[k]) return; endChase(); ringG.visible = false; wish = null; pick(k) },

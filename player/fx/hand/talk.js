@@ -263,6 +263,8 @@ export function createTalk({ THREE, getCamera, canvas, content, getRect, ov = {}
 
   return {
     unlock, poke, update, get busy() { return busy },
+    // the pet's floating talk button replaces the on-screen one (what you said still shows)
+    hideButton() { btnBox.style.display = 'none' },
     stop() { bubble.remove(); wrap.remove(); stream?.getTracks().forEach(t => t.stop()) },
   }
 }

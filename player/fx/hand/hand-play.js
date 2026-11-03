@@ -169,7 +169,7 @@ export async function start(opts) {
   // talk: the talk button (talk.js). A tap anywhere also unlocks the mic / voice for iOS
   let talk = null
   if (ov.handTalk !== false) {
-    const { createTalk } = await import('./talk.js?v=20261103n')
+    const { createTalk } = await import('./talk.js?v=20261104a')
     talk = createTalk({ THREE, getCamera, canvas, content, getRect: () => charRect(), ov, dbg })
     // talking starts only from the talk button; a poke (finger or tap on the character) just makes it react
     window.addEventListener('handplay:poke', () => { if (!talk.busy && !game?.chasing) emote('happy', 1500) })
@@ -178,7 +178,7 @@ export async function start(opts) {
       const r = canvas.getBoundingClientRect(), t = e.changedTouches ? e.changedTouches[0] : e
       const px = { x: t.clientX - r.left, y: t.clientY - r.top }
       if (!unlocked) { unlocked = true; talk.unlock() }
-      if (inRect(px, charRect()) && !grab.on && !game?.chasing) window.dispatchEvent(new CustomEvent('handplay:poke', { detail: { x: px.x, y: px.y, tap: true } }))
+      if (inRect(px, charRect()) && !grab.on && !game?.chasing && performance.now() - (window.__hpUiTapAt || 0) > 300) window.dispatchEvent(new CustomEvent('handplay:poke', { detail: { x: px.x, y: px.y, tap: true } }))
     }
     canvas.addEventListener('touchend', onTap, { passive: true })
     canvas.addEventListener('click', onTap)
@@ -186,9 +186,9 @@ export async function start(opts) {
 
   // wish game for kids (game.js): the character asks, you grant it, hearts and friendship levels
   let game = null, replyAt = -1e9
-  window.addEventListener('handplay:reply', () => { replyAt = performance.now() })
+  window.addEventListener('handplay:reply', () => { replyAt = performance.now(); window.__hpPet?.gain(4, 0, 8) })
   if (ov.handGame !== false) {
-    const { createGame } = await import('./game.js?v=20261103y')
+    const { createGame } = await import('./game.js?v=20261104b')
     game = createGame({
       THREE, scene, getCamera, canvas, group, getRect: () => charRect(), getBox: () => (charRect() ? box : null), emote, moves, ov, dbg,
       state: () => {
@@ -200,6 +200,37 @@ export async function start(opts) {
         }
       },
     })
+  }
+
+  // raise it like a virtual pet (pet.js): hunger / mood / level, floating status panel and buttons
+  let pet = null
+  if (ov.handPet !== false && game) {
+    const { createPet } = await import('./pet.js?v=20261104b')
+    pet = createPet({
+      THREE, scene, getCamera, canvas, group, getRect: () => charRect(), getBox: () => (charRect() ? box : null),
+      emote, moves, ov, dbg, getHand: () => hand,
+      state: () => {
+        const s = group()?.scale.y || 1
+        return {
+          ready: !!grab.base && moves.name !== 'rise', grabbing: grab.on, height: H * s, challenge: !!game?.challenge,
+          talking: !!(talk && talk.busy) || performance.now() - replyAt < 6500,
+        }
+      },
+    })
+    game.setPet(pet)
+    talk?.hideButton()
+    const J = ov.talkLang === 'en' ? 0 : 1, T2 = (en, ja) => (J ? ja : en)
+    pet.on('pet', () => { emote('happy', 1500); game.pop(T2('♪', '♪')) ; window.dispatchEvent(new CustomEvent('handplay:poke', { detail: { pet: true } })) })
+    pet.on('talk', () => { talk?.unlock(); talk?.poke() })
+    pet.on('play', () => game.startChallenge())
+    pet.on('ate', () => { emote('happy', 1800); game.pop(T2('Yum!', 'もぐもぐ！'), '#ffb347') })
+    pet.on('full', () => { moves.play('lookAround'); game.say(T2("I'm full!", 'おなかいっぱい！'), 2500) })
+    pet.on('need', (k) => {
+      emote('sad', 3000)
+      game.say(k === 'hungry' ? T2("I'm hungry… (press Food)", 'おなかすいた…（ごはんを押してね）') : T2('Play with me!', 'あそんで〜！'), 4500)
+    })
+    pet.on('levelup', (lv) => game.celebrate(lv))
+    window.__hpPet = pet
   }
 
   // landmark -> CSS pixel on the AR canvas. Devices draw the camera "cover" (cropped to fill);
@@ -337,6 +368,7 @@ export async function start(opts) {
     detect(now)
     talk?.update(dt)
     game?.update(dt)
+    pet?.update(dt)
     const g = group(), c = content()
     if (!g || !c || !g.parent) { cursor.material.opacity = 0; return }
 
@@ -446,7 +478,8 @@ export async function start(opts) {
     const pivot = grab.on || grab.falling || Math.abs(phi) > 1e-3 ? grab.pivot : 0
     tmp.set(0, pivot, 0).applyEuler(c.rotation)
     c.position.set(grab.base.x + mp.x * H - tmp.x, grab.lift + mp.y * H + mp.flat * T + pivot - tmp.y, grab.base.z + mp.z * H - tmp.z)
-    let sx = mp.sx, sy = mp.sy
+    const gr = pet ? pet.growth : 1
+    let sx = mp.sx * gr, sy = mp.sy * gr
     if (grab.on) { const st = 1.05 + Math.sin(grab.t * 11 + 1) * 0.03; sy *= st; sx /= Math.sqrt(st) }
     else { sy *= 1 - grab.squash; sx *= 1 + grab.squash * 0.6 }
     const bob = c.userData._talkBob || 1
