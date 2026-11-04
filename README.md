@@ -82,7 +82,7 @@ Connect the deployed `/mcp` endpoint as a custom connector in the Muse app, then
 
 ## License
 
-© 2026 HACK IT INC. All rights reserved. This repository is public so the hackathon judges can review the work; no license to use, copy or modify it is granted. Third-party components keep their own licenses — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The spell effects come from **Ultra Elements** by Humpalumps (https://github.com/Humpalumps/ultra-elements), MIT License.
+MIT License, © 2026 HACK IT INC. See [LICENSE](LICENSE). This covers the code in this repository; the HACKAR:S platform is not part of it. Third-party components keep their own licenses, listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Ray-Ban Display web app (prototype)
 
