@@ -38,7 +38,7 @@ const ULTRA_SPELLS = [
 const spellOf = (id) => ULTRA_SPELLS.find((s) => s.id === id) || ULTRA_SPELLS[0];
 
 // ---- 署名付きトークン（以前の自社試作と同じ仕組みを新規実装） ----
-// カード：会話の状態（同意・テーマ・AR・証明）を Muse 経由で持ち回るメモ。
+// カード：会話の状態（同意・テーマ・AR・証明）を指す短い札。Muse が持ち回る。
 // AR／証明トークン：表示に必要な最小データを署名付きで URL 自体に埋め込む（ページは再起動後も開ける）。
 const sign = (s) => createHmac('sha256', SECRET).update(s).digest('base64url').slice(0, 10);
 const packTok = (obj) => { const b = Buffer.from(JSON.stringify(obj)).toString('base64url'); return `${b}.${sign(b)}`; };
@@ -47,11 +47,50 @@ const readTok = (tok) => {
   if (!m || sign(m[1]) !== m[2]) return null;
   try { return JSON.parse(Buffer.from(m[1], 'base64url').toString()); } catch { return null; }
 };
-const packCard = (u) => `HC1.${packTok({ n: u.nickname, o: u.ownerId || null, a: u.agreed ? 1 : 0, t: u.theme || null, ar: u.arTok || null, c: u.certTok || null, us: u.usage || null, hu: u.hackarsUrl || null })}`;
-const readCard = (card) => {
-  const m = /^HC1\.([A-Za-z0-9_-]+\.[A-Za-z0-9_-]{10})$/.exec((card || '').trim());
-  return m ? readTok(m[1]) : null;
-};
+// The card is a short signed pointer, because Muse has to write it back on every call: a card of
+// several KB is slow to copy and one wrong character loses the session. The state itself is saved
+// as write-once versions in the asset store, so any server instance can read it. An old card still
+// works: reading walks forward to the newest version, so a reply lost on the way cannot bring back
+// an older character. Long HC1 cards from earlier chats are still accepted.
+const stateName = (o, q) => `${String(o).toUpperCase()}-${String(q).padStart(4, '0')}`;
+const stateUrl = (o, q) => `${PLAY_JSON_BASE}code/${stateName(o, q)}.json?v=${Date.now()}`;
+const stateOf = (u) => ({ n: u.nickname, o: u.ownerId || null, a: u.agreed ? 1 : 0, t: u.theme || null, ar: u.arTok || null, c: u.certTok || null, us: u.usage || null, hu: u.hackarsUrl || null, hp: u.hackarsProjectId || null, w: u.working || 0 });
+const longCard = (u) => `HC1.${packTok(stateOf(u))}`;
+async function packCard(u) {
+  if (!u.ownerId) return longCard(u);
+  const json = JSON.stringify(stateOf(u));
+  if (json !== u.savedJson) {
+    const start = u.seq || 0;
+    let saved = false;
+    for (let k = 1; k <= 4 && !saved; k++) {   // a taken version means another instance moved on
+      u.seq = start + k;
+      saved = !!(await storeAsset('json', Buffer.from(json), stateName(u.ownerId, u.seq)));
+    }
+    if (!saved) { u.seq = start; return longCard(u); }   // storage is down: the long card still carries everything
+    u.savedJson = json;
+  }
+  const b = `${u.ownerId}.${u.seq}`;
+  return `HC3.${b}.${sign(b)}`;
+}
+async function newestState(o, from) {
+  const mem = users.get(o);
+  let q = Math.max(from, mem?.seq || 0);
+  let state = mem?.seq === q ? null : await fetchJson(stateUrl(o, q));
+  for (;;) {
+    const next = await fetchJson(stateUrl(o, q + 1));
+    if (!next) break;
+    state = next; q++;
+  }
+  if (state) return { ...state, q };
+  return mem ? { o, keep: true } : null;
+}
+async function readCard(card) {
+  const raw = (card || '').trim();
+  const m = /^HC3\.([a-z0-9]{4,14})\.(\d{1,4})\.([A-Za-z0-9_-]{10})$/.exec(raw);
+  if (m) return sign(`${m[1]}.${m[2]}`) === m[3] ? newestState(m[1], +m[2]) : null;
+  const old = /^HC1\.([A-Za-z0-9_-]+\.[A-Za-z0-9_-]{10})$/.exec(raw);
+  return old ? readTok(old[1]) : null;
+}
 
 // ---- 状態：サーバーメモリ＋カードの2本立て（メモリが消えたらカードを正にする） ----
 const users = new Map(); // ownerId -> session (a nickname alone never resumes a session)
@@ -59,12 +98,18 @@ const imgs = new Map();  // imgId -> { buf: Buffer, type } | { remote: url }  (c
 const keyOf = (nickname) => (nickname || 'guest').trim().toLowerCase() || 'guest';
 const mintOwnerId = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 const freshUser = (nickname) => ({ nickname: keyOf(nickname), ownerId: null, agreed: false, theme: null, arTok: null, arId: null, certTok: null, usage: null, hackarsUrl: null, hackarsProjectId: null });
-const getU = (nickname, card) => {
-  const c = readCard(card);
+const getU = async (nickname, card) => {
+  const c = await readCard(card);
   if (c?.o) {
     // A card identifies its owner's session, independent of the nickname.
     if (!users.has(c.o)) users.set(c.o, { ...freshUser(c.n || nickname), ownerId: c.o });
     const u = users.get(c.o);
+    if (c.keep) return u;
+    if (c.q) {   // the saved state is the truth, whatever this instance remembers
+      Object.assign(u, { agreed: !!c.a, theme: c.t, arTok: c.ar, arId: readTok(c.ar)?.i || null, certTok: c.c, usage: c.us, hackarsUrl: c.hu, hackarsProjectId: c.hp || null, working: c.w || 0, seq: c.q });
+      u.savedJson = JSON.stringify(stateOf(u));
+      return u;
+    }
     if (c.a) u.agreed = true;
     if (c.t && !u.theme) u.theme = c.t;
     if (c.ar && !u.arTok) { u.arTok = c.ar; const p = readTok(c.ar); if (p) u.arId = p.i; }
@@ -76,7 +121,7 @@ const getU = (nickname, card) => {
     return u;
   }
   // No card: never inherit another person's consent, theme or AR by nickname.
-  return freshUser(nickname || c?.n);
+  return { ...freshUser(nickname || c?.n), badCard: !!(card && !c) };
 };
 // Durable asset storage (HACKAR:S deployments bucket via /api/asset-store).
 async function storeAsset(kind, buf, name) {
@@ -87,7 +132,18 @@ async function storeAsset(kind, buf, name) {
     return r.ok && j.url ? j.url : null;
   } catch { return null; }
 }
-const cardArg = z.string().max(20000).optional().describe('前のツールの structuredContent にある card（HC1. で始まる文字列）。あればそのまま入れる');
+const cardArg = z.string().max(20000).optional().describe('前のツールの structuredContent にある card（HC3. で始まる短い文字列）。1文字も変えずにそのまま入れる');
+// A compose can outlast a dropped call. These replies say what is still running, so Muse waits
+// instead of starting the same character again.
+const stillWorking = (u) => u.working && Date.now() - u.working < 170_000;
+const busyReply = async (u, tool) => ({
+  content: [{ type: 'text', text: `This character is still being made on the server. Wait about 30 seconds, then call ${tool} again with the same card. Do not start over. / まだサーバーで作っている途中だよ。30秒ほど待って、同じ card でもう一度 ${tool} を呼んでね。最初からやり直さないで。` }],
+  structuredContent: { composing: true, card: await packCard(u) },
+});
+const badCardReply = () => ({
+  content: [{ type: 'text', text: 'That card could not be read. Copy the card from the last reply exactly and call again. Nothing was lost, so do not compose again. / card が読めなかったよ。直前の返事の card を1文字も変えずに入れて、もう一度呼んでね。作ったものは消えていないので、作り直さないで。' }],
+  structuredContent: { badCard: true },
+});
 const nickArg = z.string().max(40).optional().describe('ユーザーの呼び名（毎回同じものを入れる）');
 
 // ---- Meta Model API ----
@@ -1558,12 +1614,12 @@ function buildServer() {
     },
     annotations: { title: 'AR作りを始める', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   }, async ({ nickname, theme, agreed, card }) => {
-    const u = getU(nickname, card);
+    const u = await getU(nickname, card);
     if (!u.ownerId) { u.ownerId = mintOwnerId(); users.set(u.ownerId, u); }
     if (!agreed && !u.agreed) {
       return {
         content: [{ type: 'text', text: langOf(theme || u.theme) === 'en' ? 'Let\'s make an AR character together!\nOne thing first: MOSHI MOSHI only keeps your nickname, your theme and the AR you make. Nothing else is shared.\n\nSay "OK" to start. What should it be? Tell me a theme in a few words — a character, a brand or an IP.' : 'AR、一緒に作ろう！\nその前にひとつだけ。呼び名と、作りたいテーマ、作ったARの情報だけを MOSHI MOSHI に預けるね。それ以外は渡さないよ。\n\n「いいよ」で始めよう。どんなARにしたい？テーマを一言で教えて。' }],
-        structuredContent: { needsAgreement: true, shares: ['呼び名', 'テーマ', '作ったARの情報'], card: packCard(u) },
+        structuredContent: { needsAgreement: true, shares: ['呼び名', 'テーマ', '作ったARの情報'], card: await packCard(u) },
       };
     }
     u.agreed = true;
@@ -1571,12 +1627,12 @@ function buildServer() {
     if (!u.theme) {
       return {
         content: [{ type: 'text', text: langOf(theme || u.theme) === 'en' ? 'Thanks! What should we make? Give me a theme in a few words — for example "a bonfire spirit", "a moonlit tanuki" or your own brand character.' : 'ありがとう！じゃあ、どんなARにする？テーマを一言で教えて。迷ったらこの中から選んでもOK：「焚き火の精霊」「月夜のたぬき」「推しの誕生日ケーキ」。もちろん別のテーマでも大丈夫だよ。' }],
-        structuredContent: { needsTheme: true, card: packCard(u) },
+        structuredContent: { needsTheme: true, card: await packCard(u) },
       };
     }
     return {
       content: [{ type: 'text', text: langOf(u.theme) === 'en' ? `The theme is "${u.theme}". Go ahead and call compose_ar to build it.` : `テーマは「${u.theme}」だね。そのまま compose_ar で中身を組み立てて。` }],
-      structuredContent: { theme: u.theme, ready: true, card: packCard(u) },
+      structuredContent: { theme: u.theme, ready: true, card: await packCard(u) },
     };
   });
 
@@ -1593,134 +1649,142 @@ function buildServer() {
     annotations: { title: 'ARの中身を組み立てる', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ nickname, theme, effect, talkLang, card }) => {
     const t0 = Date.now();
-    const u = getU(nickname, card);
+    const u = await getU(nickname, card);
+    if (u.badCard) return badCardReply();
     if (!u.agreed) {
-      return { content: [{ type: 'text', text: 'まだ参加の確認ができてないみたい。先に start_create で「いいよ」をもらってね。' }], structuredContent: { needsAgreement: true, card: packCard(u) } };
+      return { content: [{ type: 'text', text: 'まだ参加の確認ができてないみたい。先に start_create で「いいよ」をもらってね。' }], structuredContent: { needsAgreement: true, card: await packCard(u) } };
     }
     if (theme) u.theme = String(theme).slice(0, 160);
     if (!u.theme) {
-      return { content: [{ type: 'text', text: 'テーマがまだ決まってないみたい。先に start_create でテーマを聞いてね。' }], structuredContent: { needsTheme: true, card: packCard(u) } };
+      return { content: [{ type: 'text', text: 'テーマがまだ決まってないみたい。先に start_create でテーマを聞いてね。' }], structuredContent: { needsTheme: true, card: await packCard(u) } };
     }
-    const th = u.theme;
-    let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [], transparentApplied = false;
-    let glbUrl = null, glbAspect = null, faces = {}, rawPngBuf = null, keyedBuf = null, keyCh = 1, samUsage = null;
-    if (MODEL_API_KEY) {
-      // The drawing only needs the theme, so it starts alongside the design.
-      const drawing = callImage(th, null, 'transparent').catch((e) => ({ failed: e }));
-      try {
-        const r = await callSpark(th);
-        comp = r.comp; sparkUsage = r.usage; usedModel = true;
-        console.log('[AR] model-usage', JSON.stringify({ at: new Date().toISOString(), model: SPARK_MODEL, theme: th, usage: sparkUsage }));
-      } catch (e) { console.log('[AR] spark-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('構成モデルが応答しなかったのでテンプレート構成に切り替えました'); }
-      if (comp) {
+    if (stillWorking(u)) return busyReply(u, 'compose_ar');
+    u.working = Date.now(); await packCard(u);   // another instance can now see that this is running
+    try {
+      const th = u.theme;
+      let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [], transparentApplied = false;
+      let glbUrl = null, glbAspect = null, faces = {}, rawPngBuf = null, keyedBuf = null, keyCh = 1, samUsage = null;
+      if (MODEL_API_KEY) {
+        // The drawing only needs the theme, so it starts alongside the design.
+        const drawing = callImage(th, null, 'transparent').catch((e) => ({ failed: e }));
         try {
-          const r = await drawing;
-          if (r.failed) throw r.failed;
-          imageUsage = r.usage;
-          imgId = Math.floor(Math.random() * 36 ** 6).toString(36).toUpperCase().padStart(6, '0');
-          if (r.b64) {
-            let buf = Buffer.from(r.b64, 'base64');
-            const type = r.type || 'image/webp';
-            if (type === 'image/png') {
-              rawPngBuf = buf; keyCh = r.keyCh || 1;
-              try { keyedBuf = makeTransparent(buf, keyCh); buf = keyedBuf; transparentApplied = true; }
-              catch (ke) { console.log('[AR] keying-failed', JSON.stringify({ theme: th, error: String(ke?.message || ke) })); notes.push('透過処理ができなかったので、そのままの画像で表示します'); }
+          const r = await callSpark(th);
+          comp = r.comp; sparkUsage = r.usage; usedModel = true;
+          console.log('[AR] model-usage', JSON.stringify({ at: new Date().toISOString(), model: SPARK_MODEL, theme: th, usage: sparkUsage }));
+        } catch (e) { console.log('[AR] spark-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('構成モデルが応答しなかったのでテンプレート構成に切り替えました'); }
+        if (comp) {
+          try {
+            const r = await drawing;
+            if (r.failed) throw r.failed;
+            imageUsage = r.usage;
+            imgId = Math.floor(Math.random() * 36 ** 6).toString(36).toUpperCase().padStart(6, '0');
+            if (r.b64) {
+              let buf = Buffer.from(r.b64, 'base64');
+              const type = r.type || 'image/webp';
+              if (type === 'image/png') {
+                rawPngBuf = buf; keyCh = r.keyCh || 1;
+                try { keyedBuf = makeTransparent(buf, keyCh); buf = keyedBuf; transparentApplied = true; }
+                catch (ke) { console.log('[AR] keying-failed', JSON.stringify({ theme: th, error: String(ke?.message || ke) })); notes.push('透過処理ができなかったので、そのままの画像で表示します'); }
+              }
+              imgs.set(imgId, { buf, type });
             }
-            imgs.set(imgId, { buf, type });
-          }
-          else if (r.remote) imgs.set(imgId, { remote: r.remote });
-          console.log('[AR] model-usage', JSON.stringify({ at: new Date().toISOString(), model: IMAGE_MODEL, theme: th, usage: imageUsage ?? 'n/a' }));
-        } catch (e) { console.log('[AR] image-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('素材画像の生成に失敗したので色の背景で代替します'); }
-      }
-    } else {
-      notes.push('APIキー未設定のためテンプレート構成です');
-    }
-    // SAM 3.1 のマスクが使えれば、クロマキーの輪郭を差し替える（GLB・表情の前に）。
-    if (keyedBuf && rawPngBuf && MODEL_API_KEY) {
-      const sam = await callSamCutout(rawPngBuf, keyedBuf);
-      if (sam) { keyedBuf = sam.buf; samUsage = { calls: 1 }; }
-    }
-    // 表情と裏の絵は時間がかかるので、自己チェックと同時に始める。描き直しになったら作り直す。
-    let backJob = null, facesJob = null;
-    const startArtJobs = () => {
-      backJob = makeBack(rawPngBuf, keyCh);
-      facesJob = makeFaces(rawPngBuf, keyedBuf, keyCh).catch(() => ({}));
-    };
-    if (keyedBuf && rawPngBuf && MODEL_API_KEY) startArtJobs();
-    // 自己チェック：Spark が仕上がりを目で見る。不合格で時間に余裕があれば、直し方を足して1回だけ描き直す。
-    let check = null, redrawn = false, checkUsage = null, proofJob = null;
-    const addUsage = (a, b) => { if (!a || !b) return a || b; const x = normUsage(a), y = normUsage(b); return { prompt_tokens: (x.in || 0) + (y.in || 0), completion_tokens: (x.out || 0) + (y.out || 0), total_tokens: (x.total || 0) + (y.total || 0) }; };
-    if (keyedBuf && MODEL_API_KEY && comp) {
-      try {
-        check = await checkArt(keyedBuf, th); checkUsage = check.usage;
-        console.log('[AR] self-check', JSON.stringify({ theme: th, ok: check.ok, score: check.score, issues: check.issues, ms: Date.now() - t0 }));
-        if (!check.ok && Date.now() - t0 < 60_000) {
-          const r = await callImage(th, comp, 'transparent', check.fix || 'Show exactly one character, whole body inside the frame, no text.');
-          if (r.b64 && r.type === 'image/png') {
-            const raw2 = Buffer.from(r.b64, 'base64');
-            let cut2 = makeTransparent(raw2, r.keyCh || 1);
-            const sam2 = await callSamCutout(raw2, cut2);
-            if (sam2) cut2 = sam2.buf;
-            const check2 = await checkArt(cut2, th);
-            checkUsage = addUsage(checkUsage, check2.usage); imageUsage = addUsage(imageUsage, r.usage);
-            console.log('[AR] self-check-redo', JSON.stringify({ theme: th, ok: check2.ok, score: check2.score, issues: check2.issues, ms: Date.now() - t0 }));
-            if (check2.ok || check2.score > check.score) {
-              // 描き直しの証拠：直す前と後の絵、点数、理由を残す（制作証明に載せる）
-              const first = { score: check.score, issues: check.issues, fix: check.fix };
-              proofJob = Promise.all([storeAsset('png', keyedBuf), storeAsset('png', cut2)]).then(([b, a]) => (b && a ? { b, a, s1: first.score, s2: check2.score, is: (first.issues || []).slice(0, 4), fx: String(first.fix || '').slice(0, 200) } : null)).catch(() => null);
-              rawPngBuf = raw2; keyedBuf = cut2; keyCh = r.keyCh || 1; redrawn = true;
-              if (imgId) imgs.set(imgId, { buf: cut2, type: 'image/png' });
-              check = { ...check2, before: { score: check.score, issues: check.issues } };
-              startArtJobs();
-            }
-          }
+            else if (r.remote) imgs.set(imgId, { remote: r.remote });
+            console.log('[AR] model-usage', JSON.stringify({ at: new Date().toISOString(), model: IMAGE_MODEL, theme: th, usage: imageUsage ?? 'n/a' }));
+          } catch (e) { console.log('[AR] image-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('素材画像の生成に失敗したので色の背景で代替します'); }
         }
-      } catch (e) { console.log('[AR] self-check-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); }
-    }
-    if (!comp) comp = fallbackComp(th);
-    if (effect && effect !== 'auto') comp.effect = effect;
-    const action = comp.action || '';
+      } else {
+        notes.push('APIキー未設定のためテンプレート構成です');
+      }
+      // SAM 3.1 のマスクが使えれば、クロマキーの輪郭を差し替える（GLB・表情の前に）。
+      if (keyedBuf && rawPngBuf && MODEL_API_KEY) {
+        const sam = await callSamCutout(rawPngBuf, keyedBuf);
+        if (sam) { keyedBuf = sam.buf; samUsage = { calls: 1 }; }
+      }
+      // 表情と裏の絵は時間がかかるので、自己チェックと同時に始める。描き直しになったら作り直す。
+      let backJob = null, facesJob = null;
+      const startArtJobs = () => {
+        backJob = makeBack(rawPngBuf, keyCh);
+        facesJob = makeFaces(rawPngBuf, keyedBuf, keyCh).catch(() => ({}));
+      };
+      if (keyedBuf && rawPngBuf && MODEL_API_KEY) startArtJobs();
+      // 自己チェック：Spark が仕上がりを目で見る。不合格で時間に余裕があれば、直し方を足して1回だけ描き直す。
+      let check = null, redrawn = false, checkUsage = null, proofJob = null;
+      const addUsage = (a, b) => { if (!a || !b) return a || b; const x = normUsage(a), y = normUsage(b); return { prompt_tokens: (x.in || 0) + (y.in || 0), completion_tokens: (x.out || 0) + (y.out || 0), total_tokens: (x.total || 0) + (y.total || 0) }; };
+      if (keyedBuf && MODEL_API_KEY && comp) {
+        try {
+          check = await checkArt(keyedBuf, th); checkUsage = check.usage;
+          console.log('[AR] self-check', JSON.stringify({ theme: th, ok: check.ok, score: check.score, issues: check.issues, ms: Date.now() - t0 }));
+          if (!check.ok && Date.now() - t0 < 60_000) {
+            const r = await callImage(th, comp, 'transparent', check.fix || 'Show exactly one character, whole body inside the frame, no text.');
+            if (r.b64 && r.type === 'image/png') {
+              const raw2 = Buffer.from(r.b64, 'base64');
+              let cut2 = makeTransparent(raw2, r.keyCh || 1);
+              const sam2 = await callSamCutout(raw2, cut2);
+              if (sam2) cut2 = sam2.buf;
+              const check2 = await checkArt(cut2, th);
+              checkUsage = addUsage(checkUsage, check2.usage); imageUsage = addUsage(imageUsage, r.usage);
+              console.log('[AR] self-check-redo', JSON.stringify({ theme: th, ok: check2.ok, score: check2.score, issues: check2.issues, ms: Date.now() - t0 }));
+              if (check2.ok || check2.score > check.score) {
+                // 描き直しの証拠：直す前と後の絵、点数、理由を残す（制作証明に載せる）
+                const first = { score: check.score, issues: check.issues, fix: check.fix };
+                proofJob = Promise.all([storeAsset('png', keyedBuf), storeAsset('png', cut2)]).then(([b, a]) => (b && a ? { b, a, s1: first.score, s2: check2.score, is: (first.issues || []).slice(0, 4), fx: String(first.fix || '').slice(0, 200) } : null)).catch(() => null);
+                rawPngBuf = raw2; keyedBuf = cut2; keyCh = r.keyCh || 1; redrawn = true;
+                if (imgId) imgs.set(imgId, { buf: cut2, type: 'image/png' });
+                check = { ...check2, before: { score: check.score, issues: check.issues } };
+                startArtJobs();
+              }
+            }
+          }
+        } catch (e) { console.log('[AR] self-check-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); }
+      }
+      if (!comp) comp = fallbackComp(th);
+      if (effect && effect !== 'auto') comp.effect = effect;
+      const action = comp.action || '';
 
-    // 半立体GLB（厚み・小口・影・9種の動き）をサーバーで組み立て、永続化する。
-    // ここで保存しておくことで、別インスタンスの publish でも公開できる。
-    if (keyedBuf) {
-      if (!backJob) startArtJobs();
-      try {
-        const { w, h, rgba } = decodePng(keyedBuf);
-        const back = await backJob;
-        const built = buildGlb({ rgba, w, h, encodePng, name: 'character', ...(back ? { backRgba: back.rgba, backW: back.w, backH: back.h } : {}) });
-        glbAspect = built.aspect;
-        glbUrl = await storeAsset('glb', built.glb);
-        if (!glbUrl) notes.push('3Dモデルの保存に失敗しました（公開時に再試行します）');
-        console.log('[AR] glb-built', JSON.stringify({ theme: th, bytes: built.glb.length, aspect: glbAspect, stored: !!glbUrl, back: !!back }));
-      } catch (e) { console.log('[AR] glb-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('3Dモデルの生成に失敗しました'); }
-      faces = await facesJob;
-    }
+      // 半立体GLB（厚み・小口・影・9種の動き）をサーバーで組み立て、永続化する。
+      // ここで保存しておくことで、別インスタンスの publish でも公開できる。
+      if (keyedBuf) {
+        if (!backJob) startArtJobs();
+        try {
+          const { w, h, rgba } = decodePng(keyedBuf);
+          const back = await backJob;
+          const built = buildGlb({ rgba, w, h, encodePng, name: 'character', ...(back ? { backRgba: back.rgba, backW: back.w, backH: back.h } : {}) });
+          glbAspect = built.aspect;
+          glbUrl = await storeAsset('glb', built.glb);
+          if (!glbUrl) notes.push('3Dモデルの保存に失敗しました（公開時に再試行します）');
+          console.log('[AR] glb-built', JSON.stringify({ theme: th, bytes: built.glb.length, aspect: glbAspect, stored: !!glbUrl, back: !!back }));
+        } catch (e) { console.log('[AR] glb-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('3Dモデルの生成に失敗しました'); }
+        faces = await facesJob;
+      }
 
-    const usage = (sparkUsage || imageUsage || samUsage) ? { s: normUsage(sparkUsage), i: normUsage(imageUsage), ...(samUsage ? { a: samUsage } : {}), ...(checkUsage ? { k: normUsage(checkUsage) } : {}) } : null;
-    u.usage = usage;
-    const ck = proofJob ? await proofJob : null;
-    const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-    const arTok = packTok({ ck: ck || undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
-    u.arTok = arTok; u.arId = arId; u.certTok = null;
-    u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
-    const spell = spellOf(comp.effect);
-    const summary = usedModel
-      ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}${samUsage ? '／切り抜きは SAM 3.1' : ''}${check ? `／仕上がりは Muse Spark が目で確認（${redrawn ? `${check.before.score}点で不合格→描き直して${check.score}点` : `${check.score}点${check.ok ? 'で合格' : '・時間内に直せず'}`}、${usageText('Spark', checkUsage)}）` : ''}）`
-      : 'テンプレート構成で組み立てました（モデル未使用）';
-    const en = (talkLang || langOf(th)) === 'en';
-    const summaryEn = usedModel
-      ? `Composed by Muse Spark (${usageTextEn('Spark', sparkUsage)}${imgId ? `; artwork by Muse Image (${usageTextEn('Image', imageUsage)})` : ''}${samUsage ? '; cut out by SAM 3.1' : ''}${check ? `; Muse Spark checked the result with vision (${redrawn ? `${check.before.score}/10 failed → redrawn → ${check.score}/10` : `${check.score}/10${check.ok ? ', passed' : ', could not fix in time'}`}; ${usageTextEn('Spark', checkUsage)})` : ''})`
-      : 'Built from the template (no model used)';
-    const held = check && !check.ok;
-    const heldIssues = held ? (check.issues || []).slice(0, 3).join(', ') : '';
-    const textEn = `Done! "${comp.title}"\n${comp.text}\nName: ${comp.name} / Personality: ${comp.persona}\nSpell: ${spell.id} / Base color: ${comp.color}\n${glbUrl ? `A semi-3D model with thickness and a shadow (hops, talks, can be picked up${Object.keys(faces).length ? `, ${Object.keys(faces).length} expressions` : ''}).` : 'The 3D model is not ready yet (it will be rebuilt when publishing).'}\n${summaryEn}${notes.length ? `\nHeads-up: ${notes.length} step(s) fell back during the build, so this one may be simpler than usual.` : ''}\n\n${held ? `Muse Spark did not pass this drawing (${check.score}/10${heldIssues ? `: ${heldIssues}` : ''}). Do not publish yet: tell the user and ask whether to publish it anyway or make a new one.` : 'Publish it? (You get a hackar-s.com link.) Want a different spell? Just say so.'}`;
-    const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n${glbUrl ? `厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き${Object.keys(faces).length ? `、表情${Object.keys(faces).length}種` : ''}）で組み立てたよ。` : '3Dモデルはまだできていないよ（公開のときにもう一度組み立てるね）。'}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n${held ? `Muse Spark の自己チェックは不合格のまま（${check.score}/10${heldIssues ? `：${heldIssues}` : ''}）。まだ公開しないで、このまま公開するか作り直すかをユーザーに聞いて。` : 'このまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。'}`;
-    console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
-    return {
-      content: [{ type: 'text', text: en ? textEn : text }],
-      structuredContent: { selfCheckProof: ck || undefined, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: packCard(u) },
-    };
+      const usage = (sparkUsage || imageUsage || samUsage) ? { s: normUsage(sparkUsage), i: normUsage(imageUsage), ...(samUsage ? { a: samUsage } : {}), ...(checkUsage ? { k: normUsage(checkUsage) } : {}) } : null;
+      u.usage = usage;
+      const ck = proofJob ? await proofJob : null;
+      const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
+      const arTok = packTok({ ck: ck || undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
+      u.arTok = arTok; u.arId = arId; u.certTok = null; u.working = 0;
+      u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
+      const spell = spellOf(comp.effect);
+      const summary = usedModel
+        ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}${samUsage ? '／切り抜きは SAM 3.1' : ''}${check ? `／仕上がりは Muse Spark が目で確認（${redrawn ? `${check.before.score}点で不合格→描き直して${check.score}点` : `${check.score}点${check.ok ? 'で合格' : '・時間内に直せず'}`}、${usageText('Spark', checkUsage)}）` : ''}）`
+        : 'テンプレート構成で組み立てました（モデル未使用）';
+      const en = (talkLang || langOf(th)) === 'en';
+      const summaryEn = usedModel
+        ? `Composed by Muse Spark (${usageTextEn('Spark', sparkUsage)}${imgId ? `; artwork by Muse Image (${usageTextEn('Image', imageUsage)})` : ''}${samUsage ? '; cut out by SAM 3.1' : ''}${check ? `; Muse Spark checked the result with vision (${redrawn ? `${check.before.score}/10 failed → redrawn → ${check.score}/10` : `${check.score}/10${check.ok ? ', passed' : ', could not fix in time'}`}; ${usageTextEn('Spark', checkUsage)})` : ''})`
+        : 'Built from the template (no model used)';
+      const held = check && !check.ok;
+      const heldIssues = held ? (check.issues || []).slice(0, 3).join(', ') : '';
+      const textEn = `Done! "${comp.title}"\n${comp.text}\nName: ${comp.name} / Personality: ${comp.persona}\nSpell: ${spell.id} / Base color: ${comp.color}\n${glbUrl ? `A semi-3D model with thickness and a shadow (hops, talks, can be picked up${Object.keys(faces).length ? `, ${Object.keys(faces).length} expressions` : ''}).` : 'The 3D model is not ready yet (it will be rebuilt when publishing).'}\n${summaryEn}${notes.length ? `\nHeads-up: ${notes.length} step(s) fell back during the build, so this one may be simpler than usual.` : ''}\n\n${held ? `Muse Spark did not pass this drawing (${check.score}/10${heldIssues ? `: ${heldIssues}` : ''}). Do not publish yet: tell the user and ask whether to publish it anyway or make a new one.` : 'Publish it? (You get a hackar-s.com link.) Want a different spell? Just say so.'}`;
+      const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n${glbUrl ? `厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き${Object.keys(faces).length ? `、表情${Object.keys(faces).length}種` : ''}）で組み立てたよ。` : '3Dモデルはまだできていないよ（公開のときにもう一度組み立てるね）。'}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n${held ? `Muse Spark の自己チェックは不合格のまま（${check.score}/10${heldIssues ? `：${heldIssues}` : ''}）。まだ公開しないで、このまま公開するか作り直すかをユーザーに聞いて。` : 'このまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。'}`;
+      console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
+      return {
+        content: [{ type: 'text', text: en ? textEn : text }],
+        structuredContent: { selfCheckProof: ck || undefined, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: await packCard(u) },
+      };
+    } catch (e) {
+      u.working = 0; await packCard(u).catch(() => {});
+      throw e;
+    }
   });
 
   server.registerTool('publish_ar', {
@@ -1729,8 +1793,10 @@ function buildServer() {
     inputSchema: { nickname: nickArg, card: cardArg },
     annotations: { title: 'ARを公開する', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ nickname, card }) => {
-    const u = getU(nickname, card);
-    if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に compose_ar で組み立ててね。' }], structuredContent: { needsCompose: true, card: packCard(u) } };
+    const u = await getU(nickname, card);
+    if (u.badCard) return badCardReply();
+    if (stillWorking(u)) return busyReply(u, 'publish_ar');
+    if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に compose_ar で組み立ててね。' }], structuredContent: { needsCompose: true, card: await packCard(u) } };
     if (!u.hackarsUrl) {
       try {
         const p = readTok(u.arTok) || {};
@@ -1777,7 +1843,7 @@ function buildServer() {
     if (!hackars) {
       return {
         content: [{ type: 'text', text: 'HACKAR:S への公開がうまくいかなかったよ。時間をおいて、もう一度「公開して」と言ってね。' }],
-        structuredContent: { url: null, publishFailed: true, card: packCard(u) },
+        structuredContent: { url: null, publishFailed: true, card: await packCard(u) },
       };
     }
     const qr = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(hackars.url)}`;
@@ -1786,7 +1852,7 @@ function buildServer() {
     const text = `${pub.nm || pub.ti || 'キャラ'}を公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。指でつまんで持ち上げたり、「おはなし」を押して話しかけたりできるよ（声で返事するよ）。「ジャンプして」「魔法を見せて」と頼むと、その通りに動くよ。手のひらを見せると魔法を使うよ。\n${hackars.url}\n\nQRコード用リンク：\n${qr}\n\n次はどうする？「制作証明を出す」「魔法を変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`;
     return {
       content: [{ type: 'text', text: pub.lg === 'en' ? textEn : text }],
-      structuredContent: { characterName: pub.nm || null, title: pub.ti || null, url: hackars.url, publishFailed: false, qr, hackarsUrl: hackars.url, hackarsProjectId: hackars.projectId, card: packCard(u) },
+      structuredContent: { characterName: pub.nm || null, title: pub.ti || null, url: hackars.url, publishFailed: false, qr, hackarsUrl: hackars.url, hackarsProjectId: hackars.projectId, card: await packCard(u) },
     };
   });
 
@@ -1800,15 +1866,16 @@ function buildServer() {
     },
     annotations: { title: '魔法を変える', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ nickname, effect, card }) => {
-    const u = getU(nickname, card);
-    if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に compose_ar で組み立ててね。' }], structuredContent: { needsCompose: true, card: packCard(u) } };
+    const u = await getU(nickname, card);
+    if (u.badCard) return badCardReply();
+    if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に compose_ar で組み立ててね。' }], structuredContent: { needsCompose: true, card: await packCard(u) } };
     const p = readTok(u.arTok) || {};
     const ef = effect || p.e || 'lightning';
     const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
     const arTok = packTok({ ck: p.ck, i: arId, ti: p.ti, tx: p.tx, c: p.c, e: ef, th: p.th, im: p.im, us: p.us, bg: p.bg, mo: p.mo, ac: p.ac, g: p.g, asp: p.asp, f: p.f, nm: p.nm, ps: p.ps, lg: p.lg });
     u.arTok = arTok; u.arId = arId; u.hackarsUrl = null; u.hackarsProjectId = null; u.certTok = null;
     const text = `変えたよ！魔法：${spellOf(ef).label}\nこのまま publish_ar で新しい公開リンクを出すね。`;
-    return { content: [{ type: 'text', text }], structuredContent: { title: p.ti, effect: ef, card: packCard(u) } };
+    return { content: [{ type: 'text', text }], structuredContent: { title: p.ti, effect: ef, card: await packCard(u) } };
   });
 
   server.registerTool('issue_certificate', {
@@ -1817,8 +1884,9 @@ function buildServer() {
     inputSchema: { nickname: nickArg, card: cardArg },
     annotations: { title: '制作証明を出す', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   }, async ({ nickname, card }) => {
-    const u = getU(nickname, card);
-    if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に AR を作ってね。' }], structuredContent: { needsCompose: true, card: packCard(u) } };
+    const u = await getU(nickname, card);
+    if (u.badCard) return badCardReply();
+    if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に AR を作ってね。' }], structuredContent: { needsCompose: true, card: await packCard(u) } };
     const p = readTok(u.arTok) || {};
     const again = !!u.certTok;
     if (!again) u.certTok = packTok({ n: u.nickname, ti: p.ti || 'My AR', th: p.th || u.theme || '', d: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }), us: p.us || u.usage || null, h: u.hackarsUrl || null, ck: p.ck || undefined });
@@ -1826,7 +1894,7 @@ function buildServer() {
     console.log('[AR] certificate', JSON.stringify({ nickname: u.nickname, again }));
     return {
       content: [{ type: 'text', text: (again ? `制作証明はひとり1枚だよ。さっきのと同じものをもう一度出すね。\n${url}` : `おつかれさま！「${p.ti || 'My AR'}」の制作証明だよ。\n${url}\n\nよかったら、動きやエフェクトを変えた別バージョンや、新しいテーマでも作ってみてね。`) }],
-      structuredContent: { url, again, card: packCard(u) },
+      structuredContent: { url, again, card: await packCard(u) },
     };
   });
 
@@ -1844,11 +1912,12 @@ function buildServer() {
     },
     annotations: { title: '遊びを作る', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ nickname, kinds, spots, ar, theme, card }) => {
-    const u = getU(nickname, card);
+    const u = await getU(nickname, card);
     const linked = ar ? await charFromLink(ar).catch(() => null) : null;
-    if (ar && !linked) return { content: [{ type: 'text', text: 'That link is not a character made with MOSHI MOSHI. / そのリンクのキャラは見つからなかったよ。hackar-s.com/slam-ar/ のリンクをもう一度確かめてね。' }], structuredContent: { notFound: true, card: packCard(u) } };
-    if (!linked && (!u.arTok || !u.hackarsUrl)) return { content: [{ type: 'text', text: '先にキャラを作って公開してね（compose_ar → publish_ar）。遊びはそのキャラが司会をするよ。公開済みのキャラなら、リンクを渡してくれてもいいよ。' }], structuredContent: { needsPublish: true, card: packCard(u) } };
-    if (!MODEL_API_KEY) return { content: [{ type: 'text', text: 'いまは遊びを作れないみたい（モデルが使えません）。' }], structuredContent: { failed: true, card: packCard(u) } };
+    if (u.badCard && !ar) return badCardReply();
+    if (ar && !linked) return { content: [{ type: 'text', text: 'That link is not a character made with MOSHI MOSHI. / そのリンクのキャラは見つからなかったよ。hackar-s.com/slam-ar/ のリンクをもう一度確かめてね。' }], structuredContent: { notFound: true, card: await packCard(u) } };
+    if (!linked && (!u.arTok || !u.hackarsUrl)) return { content: [{ type: 'text', text: '先にキャラを作って公開してね（compose_ar → publish_ar）。遊びはそのキャラが司会をするよ。公開済みのキャラなら、リンクを渡してくれてもいいよ。' }], structuredContent: { needsPublish: true, card: await packCard(u) } };
+    if (!MODEL_API_KEY) return { content: [{ type: 'text', text: 'いまは遊びを作れないみたい（モデルが使えません）。' }], structuredContent: { failed: true, card: await packCard(u) } };
     const p = linked ? { ...linked.p, th: theme || '' } : (readTok(u.arTok) || {});
     const arUrl = linked ? linked.url : u.hackarsUrl;
     const want = kinds && kinds.length ? [...new Set(kinds)] : ['quiz', 'riddle', 'rally'];
@@ -1881,10 +1950,10 @@ function buildServer() {
       const namesEn = { quiz: `a ${quiz.length}-question quiz`, riddle: `${riddle.length} riddles`, rally: `a ${spotsOut.length}-spot stamp rally` };
       const textEn = `Done! "${data.title}"\n${p.nm} hosts ${want.map((k) => namesEn[k]).join(', ')}. Clear everything to meet ${p.nm} in AR.\nPlay page:\n${playUrl}\n${code ? `Join code for visitors: ${code}\nAt the venue, visitors just tell Muse "Join ${code}" and play the stamp rally by talking — no app, no QR needed.\n` : ''}${want.includes('rally') ? `QR sheet for the stamp rally (optional, for people without Muse):\n${playUrl}?print=1\n` : ''}\nWritten by Muse Spark (${usageTextEn('Spark', gen.usage)})`;
       const text = `できたよ！「${data.title}」\n${want.map((k) => names[k]).join('・')}で、${p.nm}が司会をするよ。ぜんぶクリアすると、${p.nm}に AR で会えるよ。\n遊ぶページ：\n${playUrl}\n${code ? `来場者の参加コード：${code}\n会場では Muse に「${code} に参加」と話すだけで、話しながらスタンプラリーを進められるよ（アプリもQRもいらない）。\n` : ''}${want.includes('rally') ? `スタンプラリーのQRシート（Muse を使わない人向け・任意）：\n${playUrl}?print=1\n` : ''}\nMuse Spark が作りました（${usageText('Spark', gen.usage)}）`;
-      return { content: [{ type: 'text', text: lang === 'en' ? textEn : text }], structuredContent: { url: playUrl, joinCode: code, qrSheet: want.includes('rally') ? `${playUrl}?print=1` : null, kinds: want, sparkUsage: gen.usage, card: packCard(u) } };
+      return { content: [{ type: 'text', text: lang === 'en' ? textEn : text }], structuredContent: { url: playUrl, joinCode: code, qrSheet: want.includes('rally') ? `${playUrl}?print=1` : null, kinds: want, sparkUsage: gen.usage, card: await packCard(u) } };
     } catch (e) {
       console.log('[AR] play-failed', JSON.stringify({ error: String(e?.message || e) }));
-      return { content: [{ type: 'text', text: '遊びを作るのに失敗しちゃった。もう一度「遊びを作って」と言ってね。' }], structuredContent: { failed: true, card: packCard(u) } };
+      return { content: [{ type: 'text', text: '遊びを作るのに失敗しちゃった。もう一度「遊びを作って」と言ってね。' }], structuredContent: { failed: true, card: await packCard(u) } };
     }
   });
 
