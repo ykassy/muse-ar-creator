@@ -149,7 +149,7 @@ const keyFor = (theme) => /(葉|緑|グリーン|カエル|森|草|抹茶|苔|le
 
 async function callImage(theme, comp, background, fix = '') {
   const key = keyFor(theme);
-  const basePrompt = `A single charming mascot-like character illustration for an AR overlay, theme: "${theme}" (${comp.title}). Flat vector style, bold shapes, bold dark outline, no text, no letters, centered, full body, playful.${fix ? ` ${fix}` : ''}`;
+  const basePrompt = `A single charming mascot-like character illustration for an AR overlay, theme: "${theme}"${comp?.title ? ` (${comp.title})` : ''}. Flat vector style, bold shapes, bold dark outline, no text, no letters, centered, full body, playful.${fix ? ` ${fix}` : ''}`;
   const prompt = background === 'transparent'
     ? `${basePrompt} The character stands on a completely solid vivid ${key.name} (${key.hex}) chroma key background that fills the entire frame edge to edge. Anything the theme names that the character holds or wears is drawn complete and inside the frame. No shadow, no gradient, no floor, no ground line, no scenery, no floating decorations.`
     : `${basePrompt} Clean solid background in the base color ${comp.color}.`;
@@ -1580,6 +1580,8 @@ function buildServer() {
     let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [], transparentApplied = false;
     let glbUrl = null, glbAspect = null, faces = {}, rawPngBuf = null, keyedBuf = null, keyCh = 1, samUsage = null;
     if (MODEL_API_KEY) {
+      // The drawing only needs the theme, so it starts alongside the design.
+      const drawing = callImage(th, null, 'transparent').catch((e) => ({ failed: e }));
       try {
         const r = await callSpark(th);
         comp = r.comp; sparkUsage = r.usage; usedModel = true;
@@ -1587,7 +1589,8 @@ function buildServer() {
       } catch (e) { console.log('[AR] spark-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('構成モデルが応答しなかったのでテンプレート構成に切り替えました'); }
       if (comp) {
         try {
-          const r = await callImage(th, comp, 'transparent');
+          const r = await drawing;
+          if (r.failed) throw r.failed;
           imageUsage = r.usage;
           imgId = Math.floor(Math.random() * 36 ** 6).toString(36).toUpperCase().padStart(6, '0');
           if (r.b64) {
@@ -1684,8 +1687,10 @@ function buildServer() {
     const summaryEn = usedModel
       ? `Composed by Muse Spark (${usageTextEn('Spark', sparkUsage)}${imgId ? `; artwork by Muse Image (${usageTextEn('Image', imageUsage)})` : ''}${samUsage ? '; cut out by SAM 3.1' : ''}${check ? `; Muse Spark checked the result with vision (${redrawn ? `${check.before.score}/10 failed → redrawn → ${check.score}/10` : `${check.score}/10${check.ok ? ', passed' : ', could not fix in time'}`}; ${usageTextEn('Spark', checkUsage)})` : ''})`
       : 'Built from the template (no model used)';
-    const textEn = `Done! "${comp.title}"\n${comp.text}\nName: ${comp.name} / Personality: ${comp.persona}\nSpell: ${spell.id} / Base color: ${comp.color}\n${glbUrl ? `A semi-3D model with thickness and a shadow (hops, talks, can be picked up${Object.keys(faces).length ? `, ${Object.keys(faces).length} expressions` : ''}).` : 'The 3D model is not ready yet (it will be rebuilt when publishing).'}\n${summaryEn}${notes.length ? `\nHeads-up: ${notes.length} step(s) fell back during the build, so this one may be simpler than usual.` : ''}\n\nPublish it? (You get a hackar-s.com link.) Want a different spell? Just say so.`;
-    const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n${glbUrl ? `厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き${Object.keys(faces).length ? `、表情${Object.keys(faces).length}種` : ''}）で組み立てたよ。` : '3Dモデルはまだできていないよ（公開のときにもう一度組み立てるね）。'}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\nこのまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。`;
+    const held = check && !check.ok;
+    const heldIssues = held ? (check.issues || []).slice(0, 3).join(', ') : '';
+    const textEn = `Done! "${comp.title}"\n${comp.text}\nName: ${comp.name} / Personality: ${comp.persona}\nSpell: ${spell.id} / Base color: ${comp.color}\n${glbUrl ? `A semi-3D model with thickness and a shadow (hops, talks, can be picked up${Object.keys(faces).length ? `, ${Object.keys(faces).length} expressions` : ''}).` : 'The 3D model is not ready yet (it will be rebuilt when publishing).'}\n${summaryEn}${notes.length ? `\nHeads-up: ${notes.length} step(s) fell back during the build, so this one may be simpler than usual.` : ''}\n\n${held ? `Muse Spark did not pass this drawing (${check.score}/10${heldIssues ? `: ${heldIssues}` : ''}). Do not publish yet: tell the user and ask whether to publish it anyway or make a new one.` : 'Publish it? (You get a hackar-s.com link.) Want a different spell? Just say so.'}`;
+    const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n${glbUrl ? `厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き${Object.keys(faces).length ? `、表情${Object.keys(faces).length}種` : ''}）で組み立てたよ。` : '3Dモデルはまだできていないよ（公開のときにもう一度組み立てるね）。'}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n${held ? `Muse Spark の自己チェックは不合格のまま（${check.score}/10${heldIssues ? `：${heldIssues}` : ''}）。まだ公開しないで、このまま公開するか作り直すかをユーザーに聞いて。` : 'このまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。'}`;
     console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
     return {
       content: [{ type: 'text', text: en ? textEn : text }],
