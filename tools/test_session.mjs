@@ -1,6 +1,7 @@
 // How a session survives lost replies and different server instances. Runs with no network:
 // the asset store is a Map, and every call is sent to the real request handler.
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 
 process.env.CARD_SECRET = 'test-secret';
 process.env.HACKARS_API_KEY = 'test-key';
@@ -9,6 +10,7 @@ delete process.env.MODEL_API_KEY;   // no model: compose falls back to the templ
 
 const store = new Map();
 let failures = 0;   // how many saves answer 503 before the store recovers
+let projects = 0;   // how many projects HACKAR:S was asked to create
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (url, init = {}) => {
   const u = String(url);
@@ -20,6 +22,7 @@ globalThis.fetch = async (url, init = {}) => {
     store.set(name, Buffer.from(base64, 'base64').toString());
     return Response.json({ url: `http://store/${name}` });
   }
+  if (u.includes('/api/project-create')) { projects++; return Response.json({ url: `http://hackars/${projects}`, projectId: `p${projects}` }); }
   const m = /code\/([A-Z0-9]+-\d{4})\.json/.exec(u);
   if (m) return store.has(m[1]) ? new Response(store.get(m[1])) : new Response('', { status: 404 });
   return realFetch(url, init);
@@ -75,5 +78,32 @@ const running = { ...JSON.parse(store.get(`${name}-${version}`)), w: Date.now() 
 store.set(`${name}-${String(+version + 1).padStart(4, '0')}`, JSON.stringify(running));
 assert.equal((await call(B, 'publish_ar', { nickname: 'test', card: first.card })).composing, true);
 assert.equal((await call(A, 'compose_ar', { nickname: 'test', card: first.card })).composing, true);
+
+// A drawing Spark did not pass stays unpublished until the user agrees, from any card.
+// (The template character has no model file, so this one is given a signed token that has.)
+const withModel = (tok) => {
+  const b = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(tok.split('.')[0], 'base64url')), g: 'http://store/model.glb' })).toString('base64url');
+  return `${b}.${createHmac('sha256', 'test-secret').update(b).digest('base64url').slice(0, 10)}`;
+};
+const failing = (over) => {
+  const [n, v] = [...store.keys()].at(-1).split('-');
+  const state = JSON.parse(store.get(`${n}-${v}`));
+  store.set(`${n}-${String(+v + 1).padStart(4, '0')}`, JSON.stringify({ ...state, w: 0, hu: null, hp: null, ar: withModel(state.ar), ...over }));
+};
+failing({ h: { s: 4, i: ['no open umbrella'] } });
+const held = await call(B, 'publish_ar', { nickname: 'test', card: first.card });
+assert.equal(held.needsConfirmation, true);
+assert.equal(held.selfCheck.score, 4);
+assert.equal(projects, 0, 'nothing is sent to HACKAR:S before the user agrees');
+const agreed = await call(A, 'publish_ar', { nickname: 'test', card: first.card, confirmed: true });
+assert.equal(agreed.needsConfirmation, undefined);
+assert.equal(projects, 1);
+assert.equal(agreed.url, 'http://hackars/1');
+
+// A drawing that passed needs no question, and a new drawing clears the mark.
+failing({ h: null });
+const clean = await call(B, 'publish_ar', { nickname: 'test', card: first.card });
+assert.equal(clean.needsConfirmation, undefined);
+assert.equal(projects, 2);
 
 console.log('session checks passed');
