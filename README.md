@@ -11,6 +11,10 @@ Say the passphrase "Moshi Moshi" in Muse to start, give a one-word theme, and th
 3. **Publishes into HACKAR:S** (our production WebAR platform) as a real project: the model, one of five real three.js **Ultra Elements** spells (lightning / fire / frozen lightning / starfall / light pillar), expression switching, and **Hand Play** — pinch the character with your fingers to pick it up and carry it, press the talk button and it listens and answers in character (voice transcription + Spark reply + speech, with an emotion that changes its face and moves), hold up a palm to cast its spell. Ask it to jump, spin or cast its spell and it does — Spark returns an action with its reply (speech is read out with the phone's built-in voice). It moves calmly on its own (looking around, the occasional hop), lives with you as a small pet (feed / play / talk / pet from the buttons at its feet; it grows, gets hungry, sleeps at night and now and then leaves a mess you clean with a fingertip),.
 4. **Certifies** the creation with a signed certificate page (one per creator) that links the published work and prints the Meta Model API usage.
 
+## Who it is for
+
+The first user is the person behind a mascot at a small shop or a local festival. Japan is full of them: the 2015 Yuru-chara Grand Prix alone had [1,727 entries](https://www.travelvoice.jp/20151124-55505), 1,092 of them local mascots. One AR character still takes a designer, an editor and device testing, so most of them never get one. Here that person gives a theme or a sketch in a chat, checks the result and decides whether to publish; the drawing, cut-out, 3D build, hosting and the rally are done for them. No one outside our team has tried this yet.
+
 ## Try it
 
 The quickest start is the page at https://hackathon-ar-creator.vercel.app/ (QR code and links).
