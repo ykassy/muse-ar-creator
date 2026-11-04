@@ -1521,6 +1521,13 @@ async function callSamCutout(rawPngBuf, chromaBuf) {
     // SAM is asked for the character, so it leaves out what the character holds. In our runs a match
     // under 0.9 always meant a lost umbrella or lantern. The color key keeps everything that was drawn.
     if (iou < 0.9) return { buf: chromaBuf, processed, kept: false };
+    // SAM's outline also covers gaps inside it, such as between the ribs of a fan. Those stay see-through.
+    for (let i = 0; i < total; i++) {
+      const a = chroma.rgba[i * 4 + 3];
+      if (a === 255) continue;
+      out[i * 4] = chroma.rgba[i * 4]; out[i * 4 + 1] = chroma.rgba[i * 4 + 1]; out[i * 4 + 2] = chroma.rgba[i * 4 + 2];
+      if (a < 128) out[i * 4 + 3] = a;
+    }
     return { buf: encodePng(raw.w, raw.h, out), processed, kept: true };
   } catch (e) { console.log('[AR] sam-error', JSON.stringify({ error: String(e?.message || e).slice(0, 120) })); return null; }
 }
