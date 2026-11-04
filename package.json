@@ -10,7 +10,7 @@
   "name": "hackathon-ar-creator",
   "private": false,
   "scripts": {
-    "test": "node tools/test_glb_local.mjs && node tools/test_answers.mjs"
+    "test": "node tools/test_glb_local.mjs && node tools/test_answers.mjs && node tools/test_session.mjs"
   },
   "type": "module",
   "version": "1.0.0"

@@ -88,7 +88,7 @@ Environment variables (Vercel project settings):
 
 ```bash
 npm install
-npm test         # no network: builds a GLB from a drawn shape, checks how answers are matched
+npm test         # no network: builds a GLB, checks answer matching, and runs a session across two server instances with lost replies
 npx vercel dev   # or deploy with: npx vercel --prod
 ```
 

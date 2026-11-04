@@ -1,0 +1,67 @@
+// How a session survives lost replies and different server instances. Runs with no network:
+// the asset store is a Map, and every call is sent to the real request handler.
+import assert from 'node:assert/strict';
+
+process.env.CARD_SECRET = 'test-secret';
+process.env.HACKARS_API_KEY = 'test-key';
+process.env.PUBLIC_BASE_URL = 'http://localhost';
+delete process.env.MODEL_API_KEY;   // no model: compose falls back to the template
+
+const store = new Map();
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+  const u = String(url);
+  if (u.includes('/api/asset-store')) {
+    const { name, base64 } = JSON.parse(init.body);
+    if (store.has(name)) return new Response('{"error":"name taken"}', { status: 409 });
+    store.set(name, Buffer.from(base64, 'base64').toString());
+    return Response.json({ url: `http://store/${name}` });
+  }
+  const m = /code\/([A-Z0-9]+-\d{4})\.json/.exec(u);
+  if (m) return store.has(m[1]) ? new Response(store.get(m[1])) : new Response('', { status: 404 });
+  return realFetch(url, init);
+};
+
+// Two imports are two server instances: neither sees the other's memory, as in production.
+const A = await import('../api/mcp.js?instance=a');
+const B = await import('../api/mcp.js?instance=b');
+let id = 0;
+const call = async (instance, name, args) => {
+  const res = await instance.POST(new Request('http://localhost/mcp', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } }),
+  }));
+  const text = await res.text();
+  const line = text.split('\n').find((l) => l.startsWith('data:'));
+  return JSON.parse(line ? line.slice(5) : text).result.structuredContent;
+};
+
+// The card stays short, because Muse copies it into every call.
+const first = await call(A, 'start_create', { nickname: 'test', theme: 'a small lantern', agreed: true });
+assert.match(first.card, /^HC3\.[a-z0-9]+\.\d+\.[\w-]{10}$/);
+assert.ok(first.card.length < 40, `card is ${first.card.length} characters`);
+
+// Compose, and pretend the reply was lost: the next call still carries the first card.
+const composed = await call(A, 'compose_ar', { nickname: 'test', card: first.card });
+assert.ok(composed.title);
+const late = await call(B, 'publish_ar', { nickname: 'test', card: first.card });
+assert.notEqual(late.needsCompose, true, 'an old card must reach the newest state');
+
+// A new theme, from the old card again: the newest state keeps moving forward.
+await call(A, 'compose_ar', { nickname: 'test', theme: 'a paper crane', card: composed.card });
+const again = await call(B, 'start_create', { nickname: 'test', card: first.card });
+assert.equal(again.theme, 'a paper crane');
+
+// One wrong character is reported as such, not as "nothing made yet".
+const bad = first.card.slice(0, -1) + (first.card.endsWith('A') ? 'B' : 'A');
+assert.equal((await call(B, 'publish_ar', { nickname: 'test', card: bad })).badCard, true);
+
+// A compose still running on another instance makes a second call wait.
+const [name, version] = [...store.keys()].at(-1).split('-');
+const running = { ...JSON.parse(store.get(`${name}-${version}`)), w: Date.now() };
+store.set(`${name}-${String(+version + 1).padStart(4, '0')}`, JSON.stringify(running));
+assert.equal((await call(B, 'publish_ar', { nickname: 'test', card: first.card })).composing, true);
+assert.equal((await call(A, 'compose_ar', { nickname: 'test', card: first.card })).composing, true);
+
+console.log('session checks passed');
