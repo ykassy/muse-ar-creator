@@ -1,7 +1,5 @@
 # MOSHI MOSHI — Say hello to your characters
 
-[![test](https://github.com/ykassy/muse-ar-creator/actions/workflows/test.yml/badge.svg)](https://github.com/ykassy/muse-ar-creator/actions/workflows/test.yml)
-
 **Talk to Muse, and a character you can touch and talk to is born inside HACKAR:S — our production WebAR platform.** Hand interactions designed for AR glasses, tried on today's phones.
 
 An MCP connector for the **Meta Global AI Developer Hackathon** (Cerebral Valley, Oct 26 – Nov 4, 2026), built by HACK IT INC. (solo).
