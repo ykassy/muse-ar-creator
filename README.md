@@ -17,6 +17,8 @@ The first user is the person behind a mascot at a small shop or a local festival
 
 ## Try it
 
+Demo video: https://youtu.be/jyYZYkT-iYQ
+
 The quickest start is the page at https://hackathon-ar-creator.vercel.app/ (QR code and links).
 
 - **On a phone, no app:** open https://hackar-s.com/slam-ar/350e9339-746e-4d64-86be-52161c4bd46b in the browser, aim at the floor, then pinch, talk and show your palm. Allow the camera and microphone. This is the cloud from the video: Muse read the sketch and the connector built it, with no retouching. Sunny, the festival mascot, is at https://hackar-s.com/slam-ar/efd6db6a-a5c0-45ee-9503-7a27fe4ddb21 (made before the back view existed, so its back is a solid color).
