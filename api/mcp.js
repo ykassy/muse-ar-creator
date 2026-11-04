@@ -107,6 +107,7 @@ async function fetchSpark(theme) {
     body: JSON.stringify({
       model: SPARK_MODEL,
       temperature: 0.8,
+      reasoning_effort: 'low',
       // muse-spark-1.3 は推論モデル：推論トークンで本文が食い尽くされないよう上限を広く取る
       max_tokens: 2500,
       messages: [
@@ -1165,15 +1166,16 @@ h1{font-size:15px;letter-spacing:.35em;color:#d4af37;margin:0 0 6px}p{line-heigh
 <p>この AR は Muse との会話から生まれ、<br>Meta Model API（Muse Spark / Muse Image）で<br>構成・生成されました。<br>HACKAR:S の中で、話しかけたり、ごはんをあげて<br>育てたり、一緒に遊べるキャラクターとして生き続けます。</p>
 <p style="font-size:12px;color:#9d968a">Born from a conversation with Muse, composed and generated with the Meta Model API (Muse Spark / Muse Image), and published to HACKAR:S — a living character you can talk to, feed, raise and play with.</p>
 ${p.us ? `<div class="row">Meta Model API usage（実行証跡）<br>${p.us.s ? `muse-spark-1.3： ${p.us.s.total ?? '?'} トークン（入力 ${p.us.s.in ?? '?'} / 出力 ${p.us.s.out ?? '?'}）<br>` : ''}${p.us.i ? `muse-image-1.0： ${p.us.i.total ?? '?'} トークン（入力 ${p.us.i.in ?? '?'} / 出力 ${p.us.i.out ?? '?'}）<br>` : ''}${p.us.a ? `sam-3.1： 切り抜き（セグメンテーション）${p.us.a.calls ?? '?'} 回実行` : ''}</div>` : ''}
+${p.ck ? `<div class="row">Muse Spark's self-check（自己チェックの証拠）<br>${p.ck.s1}/10 ${(p.ck.is || []).map(esc).join(', ')} → redrawn → ${p.ck.s2}/10${p.ck.fx ? `<br>Fix it asked for: ${esc(p.ck.fx)}` : ''}<div style="display:flex;gap:8px;margin-top:10px;justify-content:center"><img src="${esc(p.ck.b)}" alt="first drawing" style="width:46%;background:#8a8a8a;border-radius:8px"><img src="${esc(p.ck.a)}" alt="redrawn" style="width:46%;background:#8a8a8a;border-radius:8px"></div></div>` : ''}
 ${p.h ? `<div class="row">作品（HACKAR:S）<br><a href="${esc(p.h)}" style="color:#7ab8ff">${esc(p.h)}</a></div>` : ''}
-<div class="row">creator: ${esc(p.n)}<br>date: ${esc(p.d)}<br>Talk to Muse, unlock AR — HACK IT INC.</div></div></body></html>`;
+<div class="row">creator: ${esc(p.n)}<br>date: ${esc(p.d)}<br>MOSHI MOSHI — HACK IT INC.</div></div></body></html>`;
   return new Response(html, { status: 200, headers: htmlHeaders() });
 }
 
 const htmlHeaders = () => ({ 'content-type': 'text/html; charset=utf-8' });
 const pageShell = (title, inner) => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F4F4F2;color:#1C1C1E;font-family:-apple-system,'Hiragino Sans',sans-serif;padding:24px;text-align:center}p{line-height:1.8;color:#55555B}</style></head><body><main><h1>${esc(title)}</h1>${inner}</main></body></html>`;
 
-const browserPage = () => new Response(pageShell('MOSHI MOSHI は Muse で使ってね', '<p>この入口は Muse の相棒が AR を作りに来る場所です。<br>Muse アプリで MOSHI MOSHI をつないで、「AR作って」と話しかけてみて。</p>'), { status: 200, headers: htmlHeaders() });
+const browserPage = () => new Response(pageShell('MOSHI MOSHI は Muse で使ってね', '<p>この入口は Muse の相棒が AR を作りに来る場所です。<br>Muse アプリで MOSHI MOSHI をつないで、「もしもし」と話しかけてみて。</p>'), { status: 200, headers: htmlHeaders() });
 
 // ---- Muse への話し方ガイド ----
 const VOICE = '合言葉は「もしもし」（Moshi Moshi）。ユーザーがこの合言葉を言ったら、それが始まりの合図なので start_create を呼ぶ。'
@@ -1608,8 +1610,15 @@ function buildServer() {
       const sam = await callSamCutout(rawPngBuf, keyedBuf);
       if (sam) { keyedBuf = sam.buf; samUsage = { calls: 1 }; }
     }
+    // 表情と裏の絵は時間がかかるので、自己チェックと同時に始める。描き直しになったら作り直す。
+    let backJob = null, facesJob = null;
+    const startArtJobs = () => {
+      backJob = makeBack(rawPngBuf, keyCh);
+      facesJob = makeFaces(rawPngBuf, keyedBuf, keyCh).catch(() => ({}));
+    };
+    if (keyedBuf && rawPngBuf && MODEL_API_KEY) startArtJobs();
     // 自己チェック：Spark が仕上がりを目で見る。不合格で時間に余裕があれば、直し方を足して1回だけ描き直す。
-    let check = null, redrawn = false, checkUsage = null;
+    let check = null, redrawn = false, checkUsage = null, proofJob = null;
     const addUsage = (a, b) => { if (!a || !b) return a || b; const x = normUsage(a), y = normUsage(b); return { prompt_tokens: (x.in || 0) + (y.in || 0), completion_tokens: (x.out || 0) + (y.out || 0), total_tokens: (x.total || 0) + (y.total || 0) }; };
     if (keyedBuf && MODEL_API_KEY && comp) {
       try {
@@ -1626,9 +1635,13 @@ function buildServer() {
             checkUsage = addUsage(checkUsage, check2.usage); imageUsage = addUsage(imageUsage, r.usage);
             console.log('[AR] self-check-redo', JSON.stringify({ theme: th, ok: check2.ok, score: check2.score, issues: check2.issues, ms: Date.now() - t0 }));
             if (check2.ok || check2.score > check.score) {
+              // 描き直しの証拠：直す前と後の絵、点数、理由を残す（制作証明に載せる）
+              const first = { score: check.score, issues: check.issues, fix: check.fix };
+              proofJob = Promise.all([storeAsset('png', keyedBuf), storeAsset('png', cut2)]).then(([b, a]) => (b && a ? { b, a, s1: first.score, s2: check2.score, is: (first.issues || []).slice(0, 4), fx: String(first.fix || '').slice(0, 200) } : null)).catch(() => null);
               rawPngBuf = raw2; keyedBuf = cut2; keyCh = r.keyCh || 1; redrawn = true;
               if (imgId) imgs.set(imgId, { buf: cut2, type: 'image/png' });
               check = { ...check2, before: { score: check.score, issues: check.issues } };
+              startArtJobs();
             }
           }
         }
@@ -1641,8 +1654,7 @@ function buildServer() {
     // 半立体GLB（厚み・小口・影・9種の動き）をサーバーで組み立て、永続化する。
     // ここで保存しておくことで、別インスタンスの publish でも公開できる。
     if (keyedBuf) {
-      const backJob = makeBack(rawPngBuf, keyCh);
-      const facesJob = makeFaces(rawPngBuf, keyedBuf, keyCh).catch(() => ({}));
+      if (!backJob) startArtJobs();
       try {
         const { w, h, rgba } = decodePng(keyedBuf);
         const back = await backJob;
@@ -1657,8 +1669,9 @@ function buildServer() {
 
     const usage = (sparkUsage || imageUsage || samUsage) ? { s: normUsage(sparkUsage), i: normUsage(imageUsage), ...(samUsage ? { a: samUsage } : {}), ...(checkUsage ? { k: normUsage(checkUsage) } : {}) } : null;
     u.usage = usage;
+    const ck = proofJob ? await proofJob : null;
     const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-    const arTok = packTok({ i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
+    const arTok = packTok({ ck: ck || undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
     u.arTok = arTok; u.arId = arId; u.certTok = null;
     u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
     const spell = spellOf(comp.effect);
@@ -1674,7 +1687,7 @@ function buildServer() {
     console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
     return {
       content: [{ type: 'text', text: en ? textEn : text }],
-      structuredContent: { title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: packCard(u) },
+      structuredContent: { selfCheckProof: ck || undefined, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: packCard(u) },
     };
   });
 
@@ -1759,7 +1772,7 @@ function buildServer() {
     const p = readTok(u.arTok) || {};
     const ef = effect || p.e || 'lightning';
     const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-    const arTok = packTok({ i: arId, ti: p.ti, tx: p.tx, c: p.c, e: ef, th: p.th, im: p.im, us: p.us, bg: p.bg, mo: p.mo, ac: p.ac, g: p.g, asp: p.asp, f: p.f, nm: p.nm, ps: p.ps, lg: p.lg });
+    const arTok = packTok({ ck: p.ck, i: arId, ti: p.ti, tx: p.tx, c: p.c, e: ef, th: p.th, im: p.im, us: p.us, bg: p.bg, mo: p.mo, ac: p.ac, g: p.g, asp: p.asp, f: p.f, nm: p.nm, ps: p.ps, lg: p.lg });
     u.arTok = arTok; u.arId = arId; u.hackarsUrl = null; u.hackarsProjectId = null; u.certTok = null;
     const text = `変えたよ！魔法：${spellOf(ef).label}\nこのまま publish_ar で新しい公開リンクを出すね。`;
     return { content: [{ type: 'text', text }], structuredContent: { title: p.ti, effect: ef, card: packCard(u) } };
@@ -1775,7 +1788,7 @@ function buildServer() {
     if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に AR を作ってね。' }], structuredContent: { needsCompose: true, card: packCard(u) } };
     const p = readTok(u.arTok) || {};
     const again = !!u.certTok;
-    if (!again) u.certTok = packTok({ n: u.nickname, ti: p.ti || 'My AR', th: p.th || u.theme || '', d: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }), us: p.us || u.usage || null, h: u.hackarsUrl || null });
+    if (!again) u.certTok = packTok({ n: u.nickname, ti: p.ti || 'My AR', th: p.th || u.theme || '', d: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }), us: p.us || u.usage || null, h: u.hackarsUrl || null, ck: p.ck || undefined });
     const url = `${BASE}/c/${u.certTok}`;
     console.log('[AR] certificate', JSON.stringify({ nickname: u.nickname, again }));
     return {
