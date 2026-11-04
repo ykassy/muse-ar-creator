@@ -17,7 +17,7 @@ The first user is the person behind a mascot at a small shop or a local festival
 
 ## Try it
 
-Demo video: https://youtu.be/jyYZYkT-iYQ
+Demo video: https://youtu.be/SCWzMIaeShk
 
 The quickest start is the page at https://hackathon-ar-creator.vercel.app/ (QR code and links).
 
