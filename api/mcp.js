@@ -9,6 +9,7 @@ import { createHmac, createHash, randomBytes } from 'node:crypto';
 import { inflateSync, deflateSync } from 'node:zlib';
 import { z } from 'zod';
 import { buildGlb } from './glb.mjs';
+import { normAns, answerForms } from './answers.mjs';
 import { parseSamText, decodeOneBitMask } from './sam.mjs';
 
 const BASE = process.env.PUBLIC_BASE_URL || 'https://hackathon-ar-creator.vercel.app';
@@ -1361,22 +1362,6 @@ async function makeFaces(rawPngBuf, keyedBuf, keyCh) {
 
 // ---- 遊びの中身：Muse Spark がキャラの世界観からクイズ・なぞとき・スポットを作る ----
 // 答え合わせはページ側で、正規化した答えの SHA-256（塩つき）を比べる。正規化はページの norm() と同じ。
-const normAns = (s) => String(s || '').normalize('NFKC').toLowerCase()
-  .replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
-  .replace(/[\s、。・,.!?！？「」『』()（）"'\-]/g, '');
-// People answer in sentences ("An umbrella!", "I think it's boots", 「かさだよ」), so try the whole reply, then its words.
-const NOT_ANSWERS = new Set(['a', 'an', 'the', 'it', 'its', 's', 'is', 'i', 'im', 'think', 'guess', 'maybe', 'my', 'answer', 'that', 'this', 'must', 'be', 'are', 'you', 'um', 'uh', 'oh']);
-const answerForms = (s) => {
-  const text = String(s || '').normalize('NFKC').toLowerCase();
-  const words = text.split(/[^a-z0-9぀-ヿ一-鿿]+/).filter((w) => w && !NOT_ANSWERS.has(w));
-  const forms = new Set([normAns(text), normAns(words.join('')), ...words.map(normAns)]);
-  for (const f of [...forms]) {
-    forms.add(f.replace(/(です|だよ|だね|だ|かな|でしょう|でしょ|だと思う|とおもう)$/, ''));
-    if (/^[a-z]{3,}$/.test(f)) forms.add(f.endsWith('s') ? f.slice(0, -1) : `${f}s`);
-  }
-  forms.delete('');
-  return [...forms];
-};
 async function callPlaySpark({ name, persona, theme, lang, nSpots }) {
   const L = lang === 'en' ? 'English' : 'Japanese (friendly, easy enough for kids; riddle answers in hiragana)';
   const ask = `You make a small play experience hosted by the character "${name}" (theme: "${theme}"; personality: "${persona}"). Write everything in ${L}, in the character's world. `
