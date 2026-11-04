@@ -1243,7 +1243,7 @@ const FACE_PROMPTS = {
   angry: 'Change ONLY the facial expression of the character to angry: angled eyebrows, puffed cheeks, a pouting mouth. Keep everything else - pose, body, colors, background, art style - exactly the same.',
 };
 // 裏側の絵：同じキャラを後ろから見た絵を描かせ、GLB の裏面に貼る。失敗しても単色の裏のまま公開は止めない。
-const BACK_PROMPT = 'Redraw this exact same character as seen from directly behind: a back view. Show the back of the head, hair, clothes and body, with no face. '
+const BACK_PROMPT = 'Redraw this exact same character as seen from directly behind: a back view. Show the back of the head, hair, clothes and body, with no face. Do not draw hands, fingers or arm lines on the back of the body; anything held stays complete, the same size and on the mirrored side. '
   + 'Keep the same size, position, outline, proportions, colors and art style, and keep the flat solid background exactly the same. No text, no shadow.';
 async function makeBack(rawPngBuf, keyCh) {
   if (!MODEL_API_KEY || !rawPngBuf) return null;

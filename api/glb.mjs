@@ -135,6 +135,35 @@ function erode(mask, w, h, iters) {
   return cur;
 }
 // Crack-following on pixel edges -> closed loops in pixel-corner coordinates.
+// Drops specks and reports how many sizeable pieces the mask has. `kept` is the
+// mask with only its largest piece (holes inside it stay holes).
+function bigParts(mask, w, h) {
+  const label = new Int32Array(w * h), sizes = [0];
+  const stack = [];
+  let total = 0;
+  for (let i = 0; i < w * h; i++) {
+    if (!mask[i] || label[i]) continue;
+    const id = sizes.length;
+    let size = 0;
+    label[i] = id; stack.push(i);
+    while (stack.length) {
+      const p = stack.pop(), x = p % w, y = (p - x) / w;
+      size++;
+      if (x > 0 && mask[p - 1] && !label[p - 1]) { label[p - 1] = id; stack.push(p - 1); }
+      if (x < w - 1 && mask[p + 1] && !label[p + 1]) { label[p + 1] = id; stack.push(p + 1); }
+      if (y > 0 && mask[p - w] && !label[p - w]) { label[p - w] = id; stack.push(p - w); }
+      if (y < h - 1 && mask[p + w] && !label[p + w]) { label[p + w] = id; stack.push(p + w); }
+    }
+    sizes.push(size); total += size;
+  }
+  let best = 0;
+  for (let id = 1; id < sizes.length; id++) if (sizes[id] > (sizes[best] || 0)) best = id;
+  const kept = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) if (label[i] === best && best) kept[i] = 1;
+  const count = sizes.filter((n, id) => id && n >= total * 0.01).length;
+  return { kept, count };
+}
+
 // Outer loops come out CCW in image space (y down); holes CW.
 function traceLoops(mask, w, h) {
   const edges = new Map(); // "x,y" -> list of [nx, ny]
@@ -540,8 +569,16 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
   const edgeSrgb = [med[0] / 255, med[1] / 255, med[2] / 255];
   const toLin = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
   const edgeLin = [...edgeSrgb.map(toLin), 1];
-  // erode ~2px, then bbox of the eroded mask
-  mask = erode(mask, w, h, 2);
+  // erode ~2px, then bbox of the eroded mask. A thin part such as an umbrella
+  // shaft can break under erosion, and a detached piece would be cut out as a
+  // hole, so erode less when that happens and keep one connected shape.
+  const solid = mask;
+  for (const iters of [2, 1, 0]) {
+    mask = erode(solid, w, h, iters);
+    const parts = bigParts(mask, w, h);
+    mask = parts.kept;
+    if (parts.count <= 1) break;
+  }
   let x0 = w, x1 = -1, y0 = h, y1 = -1;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (mask[y * w + x]) {
     if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
