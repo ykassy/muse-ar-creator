@@ -171,7 +171,7 @@ async function fetchSpark(theme) {
       max_tokens: 2500,
       messages: [
         { role: 'system', content: 'You are an AR experience composer for an app-less WebAR product. Reply with ONE JSON object only, no markdown, no code fences, no commentary.' },
-        { role: 'user', content: `Compose a small AR character for the theme: "${theme}".\nReturn JSON with exactly these keys:\n- "title": a short English title, at most 5 words\n- "text": one English line shown over the camera view, at most 90 characters\n- "color": one base color as #RRGGBB that matches the mood\n- "effect": one of "lightning", "fire", "frozen-lightning", "starfall", "light" — the magic spell this character casts; pick the one that best matches the theme\n${nameLine}\n${personaLine}\n- \"action\": one short English sentence describing how the character moves in a seamless in-place loop` },
+        { role: 'user', content: `Compose a small AR character for the theme: "${theme}".\nReturn JSON with exactly these keys:\n- "title": a short ${lang === 'en' ? 'English title, at most 5 words' : 'Japanese title, at most 14 characters'}\n- "text": one ${lang === 'en' ? 'English line shown over the camera view, at most 90 characters' : 'Japanese line shown over the camera view, at most 40 characters'}\n- "color": one base color as #RRGGBB that matches the mood\n- "effect": one of "lightning", "fire", "frozen-lightning", "starfall", "light" — the magic spell this character casts; pick the one that best matches the theme\n${nameLine}\n${personaLine}\n- \"action\": one short English sentence describing how the character moves in a seamless in-place loop` },
       ],
     }),
   });
