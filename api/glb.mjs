@@ -613,13 +613,31 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
       const [fx0, fx1, fy0, fy1] = bodyBox(bw, bh, (x, y) => mask[(y0 + y) * w + x0 + x]);
       const [bx0, bx1, by0, by1] = bodyBox(backW, backH, (x, y) => backRgba[(y * backW + x) * 4 + 3] > 127);
       const bt = new Uint8Array(bw * bh * 4);
+      const known = new Uint8Array(bw * bh);
       for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
         const sx = Math.round(bx1 - ((x - fx0) / Math.max(1, fx1 - fx0)) * (bx1 - bx0));
         const sy = Math.round(by0 + ((y - fy0) / Math.max(1, fy1 - fy0)) * (by1 - by0));
         const inside = sx >= 0 && sy >= 0 && sx < backW && sy < backH;
         const si = inside ? (sy * backW + sx) * 4 : 0, a = inside ? backRgba[si + 3] / 255 : 0, di = (y * bw + x) * 4;
-        for (let k = 0; k < 3; k++) bt[di + k] = Math.round(backRgba[si + k] * a + tex[di + k] * (1 - a)); // where the back drawing stops short, the front art shows
+        for (let k = 0; k < 3; k++) bt[di + k] = backRgba[si + k];
         bt[di + 3] = 255;
+        known[y * bw + x] = a > 0.5 ? 1 : 0;
+      }
+      // Where the back drawing stops short of the silhouette, spread the nearest
+      // colour of the drawing outward (never its dark outline), so nothing shows
+      // through and no flat patch appears.
+      const queue = [];
+      for (let i = 0; i < bw * bh; i++) {
+        if (known[i] && bt[i * 4] + bt[i * 4 + 1] + bt[i * 4 + 2] > 270) queue.push(i);
+      }
+      for (let q = 0; q < queue.length; q++) {
+        const p = queue[q], x = p % bw, y = (p - x) / bw;
+        for (const n of [x > 0 ? p - 1 : -1, x < bw - 1 ? p + 1 : -1, y > 0 ? p - bw : -1, y < bh - 1 ? p + bw : -1]) {
+          if (n < 0 || known[n]) continue;
+          known[n] = 1;
+          for (let k = 0; k < 3; k++) bt[n * 4 + k] = bt[p * 4 + k];
+          queue.push(n);
+        }
       }
       backPng = encodePng(bw, bh, Buffer.from(bt));
     }
