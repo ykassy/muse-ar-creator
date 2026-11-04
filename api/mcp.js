@@ -70,7 +70,9 @@ const getU = (nickname, card) => {
     if (c.ar && !u.arTok) { u.arTok = c.ar; const p = readTok(c.ar); if (p) u.arId = p.i; }
     if (c.c && !u.certTok) u.certTok = c.c;
     if (c.us && !u.usage) u.usage = c.us;
-    if (c.hu && !u.hackarsUrl) u.hackarsUrl = c.hu;
+    // The link belongs to the character it was published for. An older card must
+    // not hand a newer character the previous link.
+    if (c.hu && !u.hackarsUrl && u.arTok === c.ar) u.hackarsUrl = c.hu;
     return u;
   }
   // No card: never inherit another person's consent, theme or AR by nickname.
@@ -1952,10 +1954,39 @@ async function handle(request) {
   if (request.method === 'GET' && imgId) return imgResponse(imgId);
   if (isBrowser(request)) return browserPage();
   if (request.method === 'POST') { await logRequest(request); const lim = await overLimit(request); if (lim) return lim; }
+  const slow = await isSlowCall(request);
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   const server = buildServer();
   await server.connect(transport);
-  return transport.handleRequest(request);
+  const reply = transport.handleRequest(request);
+  return slow ? keptAlive(reply) : reply;
+}
+
+// Composition takes about a minute and Muse dropped the call at around 50 seconds.
+// For the slow tools, answer as an event stream and send a comment every few
+// seconds, so the connection is never idle while the work runs.
+async function isSlowCall(request) {
+  if (request.method !== 'POST' || !(request.headers.get('accept') || '').includes('text/event-stream')) return false;
+  try {
+    const body = await request.clone().json();
+    return !Array.isArray(body) && body?.method === 'tools/call' && !!COSTLY[body.params?.name];
+  } catch { return false; }
+}
+function keptAlive(reply) {
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    start(ctrl) {
+      const beat = () => { try { ctrl.enqueue(enc.encode(': working\n\n')); } catch { /* closed */ } };
+      beat();
+      const timer = setInterval(beat, 8000);
+      reply.then((res) => res.text()).then((text) => {
+        clearInterval(timer);
+        ctrl.enqueue(enc.encode(`event: message\ndata: ${text.replace(/\r?\n/g, ' ')}\n\n`));
+        ctrl.close();
+      }).catch((e) => { clearInterval(timer); ctrl.error(e); });
+    },
+  });
+  return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache, no-transform' } });
 }
 
 export const POST = handle;

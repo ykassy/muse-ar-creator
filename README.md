@@ -6,7 +6,7 @@ An MCP connector for the **Meta Global AI Developer Hackathon** (Cerebral Valley
 
 Say the passphrase "Moshi Moshi" in Muse to start, give a one-word theme, and this connector:
 
-1. **Composes** the character server-side with the Meta Model API — `muse-spark-1.3` designs the title, overlay text, base color, the magic spell, and the character's **name and personality** (JSON); `muse-image-1.0` generates the artwork, plus face variants (happy / surprised / sad / angry) via image edits, each re-cut with the original silhouette mask. Token usage is logged on every run as Tooling evidence. Muse Spark then **checks its own artwork with vision** — the cut-out on a gray floor, as it will stand in AR — and if it fails (holes, a cropped limb, leftover background) it writes the fix into a new image prompt and redraws once.
+1. **Composes** the character server-side with the Meta Model API — `muse-spark-1.3` designs the title, overlay text, base color, the magic spell, and the character's **name and personality** (JSON); `muse-image-1.0` generates the artwork, plus face variants (happy / surprised / sad / angry) via image edits, each re-cut with the original silhouette mask. Token usage is logged on every run as Tooling evidence. Muse Spark then **checks its own artwork with vision**: it grades the 2D cut-out on a plain gray background (not the finished 3D model), and if it fails (holes, a cropped limb, something the theme asked for) it writes the fix into a new image prompt and, when time allows, redraws once. A drawing that still fails is not blocked: the better of the two goes forward.
 2. **Builds a semi-3D model on the server** (`api/glb.mjs`, pure JS): the flat artwork becomes a plate with real thickness (1/15 of its height), an edge-coloured rim, a baked ground shadow, a 3-joint squash-and-stretch rig, and **nine named animation clips** — `idle` / `happy` / `surprised` / `sad` / `angry` / `talk` / `dangle` / `land` / `zap`.
 3. **Publishes into HACKAR:S** (our production WebAR platform) as a real project: the model, one of five real three.js **Ultra Elements** spells (lightning / fire / frozen lightning / starfall / light pillar), expression switching, and **Hand Play** — pinch the character with your fingers to pick it up and carry it, press the talk button and it listens and answers in character (voice transcription + Spark reply + speech, with an emotion that changes its face and moves), hold up a palm to cast its spell. Ask it to jump, spin or cast its spell and it does — Spark returns an action with its reply (speech is read out with the phone's built-in voice). It moves calmly on its own (looking around, the occasional hop), lives with you as a small pet (feed / play / talk / pet from the buttons at its feet; it grows, gets hungry, sleeps at night and now and then leaves a mess you clean with a fingertip),.
 4. **Certifies** the creation with a signed certificate page (one per creator) that links the published work and prints the Meta Model API usage.
@@ -20,15 +20,15 @@ Say the passphrase "Moshi Moshi" in Muse to start, give a one-word theme, and th
 ## In production
 
 - **Real output, real platform.** Every run creates a project in HACKAR:S (hackar-s.com), the WebAR platform we already run for brand and event AR. The only link the user gets is that hackar-s.com URL.
-- **Time.** Theme to a live link takes about 1.7 minutes (composition 47–93 s, longest when the self-check asks for a redraw; publishing about 28 s).
+- **Time.** In nine direct calls, theme to a live link averaged 102 s (composition 47–93 s, longest when the self-check asks for a redraw; publishing about 28 s). We did not time the Muse runs end to end.
 - **Measured on Nov 5, 2026.** Twelve fresh runs against the live connector all published: nine called directly (75–121 s from theme to link, mean 102 s) and three through the Muse app, starting from "Moshi Moshi". Two of them showed problems that are now fixed: one lost the umbrella its theme asked for (prompt fix), and one GLB was too large to store, so publishing rebuilt it without its back view (back plate now half size).
 - **Known limit.** In all three Muse runs its call to `compose_ar` dropped around the 50-second mark, while the server was finishing. Muse recovered each time; in one run it composed a second time.
 - **Self-check proof.** When Muse Spark rejects a drawing and the redraw scores higher, the first drawing, the redraw, both scores and the fix it wrote go on the creation certificate. Example: 4/10 "no open yellow umbrella", redrawn to 10/10 ([first drawing](https://pgyuabajrswdkzuksqfu.supabase.co/storage/v1/object/public/deployments/ar-creator/cb151e3e-2cfd-41dd-a5d1-f7bf7500feb7.png), [redraw](https://pgyuabajrswdkzuksqfu.supabase.co/storage/v1/object/public/deployments/ar-creator/988cefd4-32cc-4b77-a80d-ce0f34202e6e.png)).
-- **Cost per character.** About six Muse Image calls (artwork, four expressions, at most one redraw) at $0.01 each plus a few thousand Muse Spark tokens — roughly $0.07.
+- **Cost per character.** Without a redraw, about six Muse Image calls (artwork, four expressions, back view) at $0.01 each plus a few thousand Muse Spark tokens, roughly $0.07. A redraw repeats the image work and costs more; edit calls are not in the usage shown in chat.
 - **Honest failure.** If publishing fails, the user is told so; no other URL is substituted.
 - **Guard rails.** Rate limits on the paid tools and on talk, per IP and overall, kept in memory per server instance, plus pause switches (`AR_PAUSED`, `TALK_PAUSED`).
 
-If the model API is unavailable, composition falls back to a deterministic template so a creation always stands up (publishing still requires the real pipeline and fails honestly rather than substituting another URL).
+If the model API is unavailable, composition falls back to a deterministic template, but publishing still needs a generated image and model; it fails honestly rather than substituting another URL.
 
 ## What was built when (hackathon rules)
 
@@ -58,7 +58,7 @@ If the model API is unavailable, composition falls back to a deterministic templ
 | `remix_ar` | Same character, different spell; then publish again |
 | `issue_certificate` | Issues the certificate page (one per creator) with model usage and the work's URL |
 | `make_play` | Muse Spark writes a quiz, riddles and a stamp rally hosted by the published character; stored at hackar-s.com/play/<id>, plus a short **join code** (e.g. `SUNNY-4821`) |
-| `play_rally` | The visitor side, inside Muse: say the join code, say where you are, answer the character's question — Muse checks it and hands out the stamp. Answers are salted hashes, so Muse itself can't see or leak them; progress is a signed token. Clear every spot and the character's AR link arrives |
+| `play_rally` | The visitor side, inside Muse: say the join code, say where you are, answer the character's question — Muse checks it and hands out the stamp. Answers are stored as salted hashes, so a normal reply never shows them up front. This is not a secrecy guarantee: quiz choices are public, so a hash can be matched against them. Progress is a signed token that detects tampering; the spot is self-reported, so it does not prove a visit. Clear every spot and the character's AR link arrives |
 
 ## Setup
 
