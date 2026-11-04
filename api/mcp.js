@@ -1177,7 +1177,7 @@ ${p.h ? `<div class="row">作品（HACKAR:S）<br><a href="${esc(p.h)}" style="c
 const htmlHeaders = () => ({ 'content-type': 'text/html; charset=utf-8' });
 const pageShell = (title, inner) => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F4F4F2;color:#1C1C1E;font-family:-apple-system,'Hiragino Sans',sans-serif;padding:24px;text-align:center}p{line-height:1.8;color:#55555B}</style></head><body><main><h1>${esc(title)}</h1>${inner}</main></body></html>`;
 
-const browserPage = () => new Response(pageShell('MOSHI MOSHI は Muse で使ってね', '<p>この入口は Muse の相棒が AR を作りに来る場所です。<br>Muse アプリで MOSHI MOSHI をつないで、「もしもし」と話しかけてみて。</p>'), { status: 200, headers: htmlHeaders() });
+const browserPage = () => new Response(pageShell('MOSHI MOSHI', '<p>This address is the MCP connector, so it is meant for Muse, not a browser.<br>Add this URL as a custom connector in Muse, then say “Moshi Moshi”.</p><p><a href="/">How to try it, with or without Muse</a></p><p>Muse アプリでこの URL をコネクターに追加して、「もしもし」と話しかけてください。</p>'), { status: 200, headers: htmlHeaders() });
 
 // ---- Muse への話し方ガイド ----
 const VOICE = '合言葉は「もしもし」（Moshi Moshi）。ユーザーがこの合言葉を言ったら、それが始まりの合図なので start_create を呼ぶ。'
@@ -1188,7 +1188,7 @@ const VOICE = '合言葉は「もしもし」（Moshi Moshi）。ユーザーが
   + '③ compose の結果（キャラ名・性格・魔法）を伝え、publish_ar で HACKAR:S（hackar-s.com）に公開した URL を成果物として渡す。最後に issue_certificate で制作証明を出す。compose が返すプレビューURLのようなものは無いので、公開前の確認用URLは作らない。'
   + '公開されたキャラは「置いて終わり」ではなく、HACKAR:S の中で生きている：つまんで持ち上げる、つつくと性格のままに返事をする（声でも話す）、「ジャンプして」「魔法を見せて」と頼むとその動きをする、手のひらを見せると魔法を使う、足元のボタンでお世話もできる。公開後にユーザーへ伝えるときは、この「手で触れて、話せて、頼むと動く」を短く紹介する。'
   + '案内役としてユーザーを迷わせないこと：テーマに迷っていたら例を3つ提案する。各ステップでは、次にできることを短い選択肢で提示して選んでもらう（考えさせるだけの質問で終わらせない）。公開できたら、制作証明を出すか、動きやエフェクトを変えた別バージョンを作るか、新しいテーマで作るかを提案する。'
-  + '公開のあと：make_play でキャラが司会するクイズ・なぞとき・スタンプラリーを作れる。来場者としてユーザーが参加コード（例 SUNNY-4821）を言ったら、play_rally で会話のままスタンプラリーを進める（答えはあなたにも伏せてあるので、正解を教えない）。'
+  + '公開のあと：make_play でキャラが司会するクイズ・なぞとき・スタンプラリーを作れる。別のチャットでも、ユーザーが公開リンク（hackar-s.com/slam-ar/…）を渡したら ar に入れて呼べば作れる。来場者としてユーザーが参加コード（例 SUNNY-4821）を言ったら、play_rally で会話のままスタンプラリーを進める（答えはあなたにも伏せてあるので、正解を教えない）。'
   + 'ツールが返した URL・タイトル・トークン数の要約は、中身を変えずに伝える。'
   + 'リンクの統一ルール：ユーザーが開く AR のリンクは hackar-s.com の URL だけ。ビューアの URL は内部プレビュー用で、成果物として渡さない。HACKAR:S への公開に失敗したときは、別の URL に差し替えず、失敗したこと自体をそのまま伝える。';
 
@@ -1466,6 +1466,18 @@ async function loadPlay(ref) {
   }
   const d = await fetchJson(`${PLAY_JSON_BASE}${id.toLowerCase()}.json`);
   return d && d.rally ? { id: id.toLowerCase(), d } : null;
+}
+// A published link is enough to host a game: the character's name, voice and faces are in its public settings.
+// This lets any chat start a rally, even one that no longer holds the conversation card.
+async function charFromLink(link) {
+  const id = (/slam-ar\/([0-9a-f-]{36})/i.exec(String(link || '')) || [])[1];
+  if (!id) return null;
+  const j = await fetchJson(`${PLAY_JSON_BASE.replace(/ar-creator\/$/, '')}${id.toLowerCase()}/overlay-params.json`);
+  const overlays = j?.scene?.overlays || [];
+  const voice = overlays.find((o) => o && o.talkName);
+  if (!voice) return null;
+  const art = overlays.find((o) => o && o.expressions);
+  return { url: `https://hackar-s.com/slam-ar/${id.toLowerCase()}`, p: { nm: voice.talkName, ps: voice.talkPersona || '', lg: voice.talkLang === 'en' ? 'en' : 'ja', th: '', f: art?.expressions || null } };
 }
 const packProgress = (id, got) => `PG1.${packTok({ g: id, s: got })}`;
 const readProgress = (tok, id) => {
@@ -1756,11 +1768,12 @@ function buildServer() {
       };
     }
     const qr = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(hackars.url)}`;
-    const textEn = `Published! It is now a real HACKAR:S project. Open it on a phone and the character stands on your floor — no app. Pinch it to pick it up, press Talk and speak to it (it answers out loud), ask it to jump or show its magic and it does, or show your palm to make it cast its spell.\n${hackars.url}\n\nQR code link:\n${qr}\n\nNext: "make a quiz, riddles and a stamp rally with it", "try another spell" or "start a new theme".`;
-    const text = `公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。指でつまんで持ち上げたり、「おはなし」を押して話しかけたりできるよ（声で返事するよ）。「ジャンプして」「魔法を見せて」と頼むと、その通りに動くよ。手のひらを見せると魔法を使うよ。\n${hackars.url}\n\nQRコード用リンク：\n${qr}\n\n次はどうする？「制作証明を出す」「魔法を変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`;
+    const pub = readTok(u.arTok) || {};
+    const textEn = `Published ${pub.nm || pub.ti || 'your character'}! It is now a real HACKAR:S project. Open it on a phone and the character stands on your floor — no app. Pinch it to pick it up, press Talk and speak to it (it answers out loud), ask it to jump or show its magic and it does, or show your palm to make it cast its spell.\n${hackars.url}\n\nQR code link:\n${qr}\n\nNext: "make a quiz, riddles and a stamp rally with it", "try another spell" or "start a new theme".`;
+    const text = `${pub.nm || pub.ti || 'キャラ'}を公開したよ！このARは HACKAR:S のプロジェクトとして作成されたよ。スマホで開くと、そのままARが見られるよ（アプリ不要）。指でつまんで持ち上げたり、「おはなし」を押して話しかけたりできるよ（声で返事するよ）。「ジャンプして」「魔法を見せて」と頼むと、その通りに動くよ。手のひらを見せると魔法を使うよ。\n${hackars.url}\n\nQRコード用リンク：\n${qr}\n\n次はどうする？「制作証明を出す」「魔法を変えた別バージョンを作る」「新しいテーマで作る」から選んでね。`;
     return {
-      content: [{ type: 'text', text: (readTok(u.arTok) || {}).lg === 'en' ? textEn : text }],
-      structuredContent: { url: hackars.url, publishFailed: false, qr, hackarsUrl: hackars.url, hackarsProjectId: hackars.projectId, card: packCard(u) },
+      content: [{ type: 'text', text: pub.lg === 'en' ? textEn : text }],
+      structuredContent: { characterName: pub.nm || null, title: pub.ti || null, url: hackars.url, publishFailed: false, qr, hackarsUrl: hackars.url, hackarsProjectId: hackars.projectId, card: packCard(u) },
     };
   });
 
@@ -1812,14 +1825,19 @@ function buildServer() {
       nickname: nickArg,
       kinds: z.array(z.enum(['quiz', 'riddle', 'rally'])).max(3).optional().describe('作る遊び：quiz=クイズ、riddle=なぞとき、rally=スタンプラリー。省略で3つとも'),
       spots: z.number().int().min(2).max(6).optional().describe('スタンプラリーのスポット数（2〜6、既定4）'),
+      ar: z.string().max(200).optional().describe('司会にするキャラの公開リンク（hackar-s.com/slam-ar/…）。ユーザーがリンクを渡したとき、または card が無いときに入れる'),
+      theme: z.string().max(120).optional().describe('ar を使うときのキャラの説明（分かれば一言）'),
       card: cardArg,
     },
     annotations: { title: '遊びを作る', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  }, async ({ nickname, kinds, spots, card }) => {
+  }, async ({ nickname, kinds, spots, ar, theme, card }) => {
     const u = getU(nickname, card);
-    if (!u.arTok || !u.hackarsUrl) return { content: [{ type: 'text', text: '先にキャラを作って公開してね（compose_ar → publish_ar）。遊びはそのキャラが司会をするよ。' }], structuredContent: { needsPublish: true, card: packCard(u) } };
+    const linked = ar ? await charFromLink(ar).catch(() => null) : null;
+    if (ar && !linked) return { content: [{ type: 'text', text: 'That link is not a character made with MOSHI MOSHI. / そのリンクのキャラは見つからなかったよ。hackar-s.com/slam-ar/ のリンクをもう一度確かめてね。' }], structuredContent: { notFound: true, card: packCard(u) } };
+    if (!linked && (!u.arTok || !u.hackarsUrl)) return { content: [{ type: 'text', text: '先にキャラを作って公開してね（compose_ar → publish_ar）。遊びはそのキャラが司会をするよ。公開済みのキャラなら、リンクを渡してくれてもいいよ。' }], structuredContent: { needsPublish: true, card: packCard(u) } };
     if (!MODEL_API_KEY) return { content: [{ type: 'text', text: 'いまは遊びを作れないみたい（モデルが使えません）。' }], structuredContent: { failed: true, card: packCard(u) } };
-    const p = readTok(u.arTok) || {};
+    const p = linked ? { ...linked.p, th: theme || '' } : (readTok(u.arTok) || {});
+    const arUrl = linked ? linked.url : u.hackarsUrl;
     const want = kinds && kinds.length ? [...new Set(kinds)] : ['quiz', 'riddle', 'rally'];
     const nSpots = want.includes('rally') ? (spots || 4) : 0;
     const lang = p.lg === 'en' ? 'en' : 'ja';
@@ -1837,7 +1855,7 @@ function buildServer() {
         v: 1, salt, title: gen.title || `${p.nm}とあそぼう`, lang,
         ip: { name: p.nm || '', world: p.ps || p.th || '' },
         host: { name: p.nm || '', img: (p.f && (p.f.neutral || p.f.happy)) || null, color: p.c || null, intro: gen.intro || '', clear: gen.clear || '' },
-        ar: u.hackarsUrl, kinds: want, quiz, riddle, rally: { spots: spotsOut },
+        ar: arUrl, kinds: want, quiz, riddle, rally: { spots: spotsOut },
       };
       const url = await storeAsset('json', Buffer.from(JSON.stringify(data)));
       const id = url && (/ar-creator\/([0-9a-f-]{36})\.json$/.exec(url) || [])[1];
