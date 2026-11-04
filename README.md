@@ -13,7 +13,7 @@ Say the passphrase "Moshi Moshi" in Muse to start, give a one-word theme, and th
 
 ## Try it
 
-- **On a phone, no app:** open https://hackar-s.com/slam-ar/efd6db6a-a5c0-45ee-9503-7a27fe4ddb21 , aim at the floor, then pinch, talk and show your palm. Allow the camera and microphone.
+- **On a phone, no app:** open https://hackar-s.com/slam-ar/b79804ab-d985-4816-bad6-2a84d7ea476a in the browser, aim at the floor, then pinch, talk and show your palm. Allow the camera and microphone. This is the cloud from the video, straight from the connector, with its generated back view. Sunny, the festival mascot, is at https://hackar-s.com/slam-ar/efd6db6a-a5c0-45ee-9503-7a27fe4ddb21 (made before the back view existed, so its back is a solid color).
 - **In Muse:** add `https://hackathon-ar-creator.vercel.app/mcp` as a custom connector, then say "Moshi Moshi".
 - **Stamp rally in Muse:** with the connector added, say "Join SUNNY-2039".
 
@@ -21,6 +21,7 @@ Say the passphrase "Moshi Moshi" in Muse to start, give a one-word theme, and th
 
 - **Real output, real platform.** Every run creates a project in HACKAR:S (hackar-s.com), the WebAR platform we already run for brand and event AR. The only link the user gets is that hackar-s.com URL.
 - **Time.** Theme to a live link took about 1.5–2 minutes in our runs (composition ~55 s, ~90 s when the self-check asks for a redraw; publishing ~30 s).
+- **Measured on Nov 5, 2026.** Five fresh runs against the live connector all published, in 81–121 s from theme to link (mean 100 s). One more run went through the Muse app end to end: "Moshi Moshi", theme, publish, then "Join SUNNY-2039". Muse's first call to `compose_ar` dropped its connection and Muse retried it; the retry succeeded.
 - **Cost per character.** About six Muse Image calls (artwork, four expressions, at most one redraw) at $0.01 each plus a few thousand Muse Spark tokens — roughly $0.07.
 - **Honest failure.** If publishing fails, the user is told so; no other URL is substituted.
 - **Guard rails.** Per-IP and global rate limits on the paid tools and on talk, plus pause switches (`AR_PAUSED`, `TALK_PAUSED`).
