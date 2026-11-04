@@ -643,7 +643,7 @@ function normalizeComp(c, theme) {
     name: String(c?.name || '').slice(0, 20) || fb.name,
     persona: String(c?.persona || '').slice(0, 200) || fb.persona,
     action: String(c?.action || '').slice(0, 120),
-    ip: String(c?.ip || '').slice(0, 60),
+    ip: /^(none|null|n\/?a|no|なし|無し|ない)?$/i.test(String(c?.ip || '').trim()) ? '' : String(c.ip).trim().slice(0, 60),
   };
 }
 
