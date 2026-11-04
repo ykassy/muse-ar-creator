@@ -53,6 +53,20 @@ If the model API is unavailable, composition falls back to a deterministic templ
 
 ## Architecture
 
+```mermaid
+flowchart LR
+  U["User in Muse"] -->|"Moshi Moshi, a theme or a sketch"| M["Muse"]
+  M -->|"MCP tools"| C["MOSHI MOSHI connector"]
+  C --> S["Muse Spark: design, vision check, fix, IP name"]
+  C --> I["Muse Image: art, faces, back view"]
+  C --> A["SAM 3.1: cut-out, compared with the color key"]
+  C --> G["GLB builder: plate, rig, nine clips"]
+  G --> H["HACKAR:S project"]
+  H -->|"a link, no app"| P["Phone browser AR"]
+  P -->|"talk"| V["Voice Transcribe, then Spark: reply and action"]
+  M -->|"join code"| R["play_rally: hashed answers, signed stamps"]
+```
+
 - `api/mcp.js` — single-file MCP server (Streamable HTTP, stateless) on `@modelcontextprotocol/sdk`. `api/glb.mjs` — the dependency-free GLB builder (the PNG codec is shared with `mcp.js`). `api/talk.js` — poke-to-talk endpoint (Muse Voice transcription + Muse Spark in-character reply).
 - **State & identity**: sessions are keyed by a random owner id. In Muse almost every call lands on a different server instance, and Muse has to copy the card into each call itself, so the card is only a signed pointer of 27 characters (`HC3.<owner>.<version>.<signature>`). A nickname alone never resumes another person's session. The server refuses to start when `CARD_SECRET` is unset (the old default was public, so cards would be forgeable).
 - **Session state**: consent, theme, the character, its certificate and its link are saved as write-once versions through the asset store. Reading walks forward to the newest version, so after a lost reply an old card still finds the latest character. A version that cannot be read is reported as "try again", never taken for "nothing newer". A long job is claimed by writing the next version, which can only happen once, so a second call is told to wait; after a claim the state is checked again, so two publishes at once make one project. With storage down, no long job starts. One gap remains: if a publish succeeds, its state cannot be saved and the reply is lost too, a later retry can make a second project. An unreadable card is reported as such instead of looking like "nothing made yet". Long `HC1` cards from older chats still work.
