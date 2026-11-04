@@ -1892,7 +1892,7 @@ function buildServer() {
   // ---- 遊ぶ側：来場者が Muse に「SUNNY-4821 に参加」「いまメインステージ」と話して進めるスタンプラリー ----
   server.registerTool('play_rally', {
     title: 'スタンプラリーで遊ぶ（来場者）',
-    description: '来場者として、キャラが司会するスタンプラリーを会話で遊ぶ。ユーザーが参加コード（例「SUNNY-4821」）や遊ぶページのURLを言ったら、まず play だけで呼ぶ（ようこそとスポット一覧が返る）。ユーザーが「いま〇〇にいる」「スポット2」と言ったら spot を付けて呼ぶ（その場所の問題が返る）。ユーザーが答えを言ったら spot と answer を付けて呼ぶ（答え合わせとスタンプ）。answer はユーザーの言葉をそのまま入れる。あなたは答えを知らない（答えは伏せてある）ので、自分で正解を決めたり教えたりしない。毎回、前の結果の progress（PG1. で始まる文字列）をそのまま入れる。返ってきた司会のセリフは、キャラの口調のまま伝える。返ってきた文章に画像（![…](…)）があれば、スタンプなのでそのまま載せる。全部そろったら返ってくる AR のリンクは言い換えずに渡す。',
+    description: '来場者として、キャラが司会するスタンプラリーを会話で遊ぶ。ユーザーが参加コード（例「SUNNY-4821」）や遊ぶページのURLを言ったら、まず play だけで呼ぶ（ようこそとスポット一覧が返る）。ユーザーが「いま〇〇にいる」「スポット2」と言ったら spot を付けて呼ぶ（その場所の問題が返る）。ユーザーが答えを言ったら spot と answer を付けて呼ぶ（答え合わせとスタンプ）。answer はユーザーの言葉をそのまま入れる。あなたは答えを知らない（答えは伏せてある）ので、自分で正解を決めたり教えたりしない。毎回、前の結果の progress（PG1. で始まる文字列）をそのまま入れる。返ってきた司会のセリフは、キャラの口調のまま伝える。全部そろったら返ってくる AR のリンクは言い換えずに渡す。',
     inputSchema: {
       play: z.string().max(200).describe('参加コード（例 SUNNY-4821）または hackar-s.com/play/ のURL'),
       spot: z.string().max(80).optional().describe('ユーザーがいる場所：スポット名か番号（ユーザーの言葉のまま）'),
@@ -1925,9 +1925,8 @@ function buildServer() {
     const all = got.length === spots.length;
     const stampImg = d.host?.img || null;
     const head = en ? `${host}: ${r.line || 'Correct!'} ${r.explain}\n\nStamp collected at ${sp.name}! (${got.length}/${spots.length})` : `${host}：${r.line || '正解！'}${r.explain}\n\n${sp.name}のスタンプをゲット！（${got.length}/${spots.length}）`;
-    const stamp = stampImg ? `\n\n![${en ? 'Stamp' : 'スタンプ'}](${stampImg})` : '';   // the stamp itself, shown in the chat
-    if (all) return out(en ? `${head}${stamp}\n\n${host}: ${d.host?.clear || 'You found every spot!'}\nMeet ${host} in AR:\n${d.ar}` : `${head}${stamp}\n\n${host}：${d.host?.clear || 'ぜんぶ見つけたね！'}\nAR で ${host} に会えるよ：\n${d.ar}`, { correct: true, cleared: true, ar: d.ar, stampImg });
-    return out(`${head}${stamp}\n${book()}`, { correct: true, stampImg });
+    if (all) return out(en ? `${head}\n\n${host}: ${d.host?.clear || 'You found every spot!'}\nMeet ${host} in AR:\n${d.ar}` : `${head}\n\n${host}：${d.host?.clear || 'ぜんぶ見つけたね！'}\nAR で ${host} に会えるよ：\n${d.ar}`, { correct: true, cleared: true, ar: d.ar, stampImg });
+    return out(`${head}\n${book()}`, { correct: true, stampImg });
   });
 
   return server;
