@@ -8,11 +8,14 @@ process.env.PUBLIC_BASE_URL = 'http://localhost';
 delete process.env.MODEL_API_KEY;   // no model: compose falls back to the template
 
 const store = new Map();
+let failures = 0;   // how many saves answer 503 before the store recovers
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (url, init = {}) => {
   const u = String(url);
   if (u.includes('/api/asset-store')) {
     const { name, base64 } = JSON.parse(init.body);
+    await new Promise((r) => setTimeout(r, 5));   // a save takes a moment, as it does in production
+    if (failures > 0) { failures--; return new Response('{}', { status: 503 }); }
     if (store.has(name)) return new Response('{"error":"name taken"}', { status: 409 });
     store.set(name, Buffer.from(base64, 'base64').toString());
     return Response.json({ url: `http://store/${name}` });
@@ -56,6 +59,15 @@ assert.equal(again.theme, 'a paper crane');
 // One wrong character is reported as such, not as "nothing made yet".
 const bad = first.card.slice(0, -1) + (first.card.endsWith('A') ? 'B' : 'A');
 assert.equal((await call(B, 'publish_ar', { nickname: 'test', card: bad })).badCard, true);
+
+// A failed save must not leave a gap, or an old card would stop short of the newest state.
+failures = 2;
+await call(A, 'start_create', { nickname: 'test', theme: 'saved after two failures', card: first.card });
+assert.equal((await call(B, 'start_create', { nickname: 'test', card: first.card })).theme, 'saved after two failures');
+
+// Two instances asked at the same moment: only one starts, the other is told to wait.
+const pair = await Promise.all([call(A, 'compose_ar', { nickname: 'test', card: first.card }), call(B, 'compose_ar', { nickname: 'test', card: first.card })]);
+assert.equal(pair.filter((r) => r.composing).length, 1);
 
 // A compose still running on another instance makes a second call wait.
 const [name, version] = [...store.keys()].at(-1).split('-');

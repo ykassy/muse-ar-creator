@@ -55,32 +55,68 @@ const readTok = (tok) => {
 // an older character. Long HC1 cards from earlier chats are still accepted.
 const stateName = (o, q) => `${String(o).toUpperCase()}-${String(q).padStart(4, '0')}`;
 const stateUrl = (o, q) => `${PLAY_JSON_BASE}code/${stateName(o, q)}.json?v=${Date.now()}`;
-const stateOf = (u) => ({ n: u.nickname, o: u.ownerId || null, a: u.agreed ? 1 : 0, t: u.theme || null, ar: u.arTok || null, c: u.certTok || null, us: u.usage || null, hu: u.hackarsUrl || null, hp: u.hackarsProjectId || null, w: u.working || 0 });
+const stateOf = (u) => ({ n: u.nickname, o: u.ownerId || null, a: u.agreed ? 1 : 0, t: u.theme || null, ar: u.arTok || null, c: u.certTok || null, us: u.usage || null, hu: u.hackarsUrl || null, hp: u.hackarsProjectId || null, ct: u.composedAt || 0, w: u.working || 0 });
 const longCard = (u) => `HC1.${packTok(stateOf(u))}`;
+const applyState = (u, c) => {
+  Object.assign(u, { agreed: !!c.a, theme: c.t, arTok: c.ar, arId: readTok(c.ar)?.i || null, certTok: c.c, usage: c.us, hackarsUrl: c.hu, hackarsProjectId: c.hp || null, composedAt: c.ct || 0, working: c.w || 0, seq: c.q });
+  u.savedJson = JSON.stringify(stateOf(u));
+};
+async function saveVersion(o, q, json) {
+  try {
+    const r = await fetch(ASSET_STORE_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': HACKARS_API_KEY }, body: JSON.stringify({ kind: 'json', base64: Buffer.from(json).toString('base64'), name: stateName(o, q) }), signal: AbortSignal.timeout(15_000) });
+    if (r.ok) return 'saved';
+    return r.status === 409 ? 'taken' : 'failed';
+  } catch { return 'failed'; }
+}
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+// Versions are write-once, so writing the next one is atomic. "taken" means another instance got
+// there first; a failed write tries the same version again, because a gap would hide what follows.
+async function saveState(u) {
+  for (let k = 0; k < 6; k++) {
+    const next = (u.seq || 0) + 1, json = JSON.stringify(stateOf(u));
+    const r = await saveVersion(u.ownerId, next, json);
+    if (r === 'saved') { u.seq = next; u.savedJson = json; return true; }
+    if (r === 'failed') { await pause(250 * (k + 1)); continue; }
+    const c = await newestState(u.ownerId, next);
+    if (!c || c.keep) { u.seq = next; continue; }
+    if ((c.ct || 0) > (u.composedAt || 0)) { applyState(u, c); return true; }   // it holds a newer character: ours is out of date
+    if (!u.holding) u.working = c.w || 0;
+    u.seq = c.q;
+  }
+  return false;
+}
 async function packCard(u) {
   if (!u.ownerId) return longCard(u);
-  const json = JSON.stringify(stateOf(u));
-  if (json !== u.savedJson) {
-    const start = u.seq || 0;
-    let saved = false;
-    for (let k = 1; k <= 4 && !saved; k++) {   // a taken version means another instance moved on
-      u.seq = start + k;
-      saved = !!(await storeAsset('json', Buffer.from(json), stateName(u.ownerId, u.seq)));
-    }
-    if (!saved) { u.seq = start; return longCard(u); }   // storage is down: the long card still carries everything
-    u.savedJson = json;
-  }
+  if (JSON.stringify(stateOf(u)) !== u.savedJson && !(await saveState(u))) return longCard(u);   // storage is down: the long card still carries everything
   const b = `${u.ownerId}.${u.seq}`;
   return `HC3.${b}.${sign(b)}`;
 }
+// One long job per session. The first instance to write the "working" version holds it.
+async function claimWork(u) {
+  for (let k = 0; k < 6; k++) {
+    const next = (u.seq || 0) + 1;
+    u.working = Date.now();
+    const json = JSON.stringify(stateOf(u));
+    const r = await saveVersion(u.ownerId, next, json);
+    if (r === 'saved') { u.seq = next; u.savedJson = json; u.holding = true; return true; }
+    if (r === 'failed') { await pause(250 * (k + 1)); continue; }
+    const c = await newestState(u.ownerId, next);
+    if (c && !c.keep) applyState(u, c); else { u.seq = next; u.working = 0; }
+    if (stillWorking(u)) return false;
+  }
+  u.holding = true;   // storage is down: carry on without the claim
+  return true;
+}
+const releaseWork = (u) => { u.working = 0; u.holding = false; };
 async function newestState(o, from) {
   const mem = users.get(o);
   let q = Math.max(from, mem?.seq || 0);
   let state = mem?.seq === q ? null : await fetchJson(stateUrl(o, q));
-  for (;;) {
-    const next = await fetchJson(stateUrl(o, q + 1));
-    if (!next) break;
-    state = next; q++;
+  for (;;) {   // looks a little past a gap, in case a version was never written
+    const ahead = await Promise.all([1, 2, 3].map((d) => fetchJson(stateUrl(o, q + d))));
+    const k = ahead.findLastIndex(Boolean);
+    if (k < 0) break;
+    state = ahead[k]; q += k + 1;
   }
   if (state) return { ...state, q };
   return mem ? { o, keep: true } : null;
@@ -106,11 +142,7 @@ const getU = async (nickname, card) => {
     if (!users.has(c.o)) users.set(c.o, { ...freshUser(c.n || nickname), ownerId: c.o });
     const u = users.get(c.o);
     if (c.keep) return u;
-    if (c.q) {   // the saved state is the truth, whatever this instance remembers
-      Object.assign(u, { agreed: !!c.a, theme: c.t, arTok: c.ar, arId: readTok(c.ar)?.i || null, certTok: c.c, usage: c.us, hackarsUrl: c.hu, hackarsProjectId: c.hp || null, working: c.w || 0, seq: c.q });
-      u.savedJson = JSON.stringify(stateOf(u));
-      return u;
-    }
+    if (c.q) { applyState(u, c); return u; }   // the saved state is the truth, whatever this instance remembers
     if (c.a) u.agreed = true;
     if (c.t && !u.theme) u.theme = c.t;
     if (c.ar && !u.arTok) { u.arTok = c.ar; const p = readTok(c.ar); if (p) u.arId = p.i; }
@@ -1646,8 +1678,7 @@ function buildServer() {
     if (!u.theme) {
       return { content: [{ type: 'text', text: 'テーマがまだ決まってないみたい。先に start_create でテーマを聞いてね。' }], structuredContent: { needsTheme: true, card: await packCard(u) } };
     }
-    if (stillWorking(u)) return busyReply(u, 'compose_ar');
-    u.working = Date.now(); await packCard(u);   // another instance can now see that this is running
+    if (stillWorking(u) || !(await claimWork(u))) return busyReply(u, 'compose_ar');
     try {
       const th = u.theme;
       let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [], transparentApplied = false;
@@ -1750,7 +1781,7 @@ function buildServer() {
       const ck = proofJob ? await proofJob : null;
       const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
       const arTok = packTok({ ck: ck || undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
-      u.arTok = arTok; u.arId = arId; u.certTok = null; u.working = 0;
+      u.arTok = arTok; u.arId = arId; u.certTok = null; u.composedAt = Date.now(); releaseWork(u);
       u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
       const spell = spellOf(comp.effect);
       const summary = usedModel
@@ -1770,7 +1801,7 @@ function buildServer() {
         structuredContent: { selfCheckProof: ck || undefined, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: await packCard(u) },
       };
     } catch (e) {
-      u.working = 0; await packCard(u).catch(() => {});
+      releaseWork(u); await packCard(u).catch(() => {});
       throw e;
     }
   });
@@ -1786,6 +1817,7 @@ function buildServer() {
     if (stillWorking(u)) return busyReply(u, 'publish_ar');
     if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に compose_ar で組み立ててね。' }], structuredContent: { needsCompose: true, card: await packCard(u) } };
     if (!u.hackarsUrl) {
+      if (!(await claimWork(u))) return busyReply(u, 'publish_ar');
       try {
         const p = readTok(u.arTok) || {};
         let glbUrl = p.g || null, aspect = p.asp || null;
@@ -1825,6 +1857,7 @@ function buildServer() {
       } catch (e) {
         console.log('[AR] hackars-error', JSON.stringify({ error: String(e?.message || e) }));
       }
+      releaseWork(u);
     }
     const hackars = u.hackarsUrl ? { url: u.hackarsUrl, projectId: u.hackarsProjectId || null } : null;
     console.log('[AR] publish', JSON.stringify({ nickname: u.nickname, arId: u.arId, hackars: !!hackars }));
@@ -1861,7 +1894,7 @@ function buildServer() {
     const ef = effect || p.e || 'lightning';
     const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
     const arTok = packTok({ ck: p.ck, i: arId, ti: p.ti, tx: p.tx, c: p.c, e: ef, th: p.th, im: p.im, us: p.us, bg: p.bg, mo: p.mo, ac: p.ac, g: p.g, asp: p.asp, f: p.f, nm: p.nm, ps: p.ps, lg: p.lg });
-    u.arTok = arTok; u.arId = arId; u.hackarsUrl = null; u.hackarsProjectId = null; u.certTok = null;
+    u.arTok = arTok; u.arId = arId; u.hackarsUrl = null; u.hackarsProjectId = null; u.certTok = null; u.composedAt = Date.now();
     const text = `変えたよ！魔法：${spellOf(ef).label}\nこのまま publish_ar で新しい公開リンクを出すね。`;
     return { content: [{ type: 'text', text }], structuredContent: { title: p.ti, effect: ef, card: await packCard(u) } };
   });
