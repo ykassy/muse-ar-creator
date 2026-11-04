@@ -1,6 +1,6 @@
 // glb.mjs - pure-JS semi-3D plate GLB builder (server-side port of the Blender
 // pipeline in pipeline/). Transparent RGBA art in -> GLB out with:
-//   - silhouette plate (front = flooded opaque texture, rim = edge colour, back = generated back view or edge colour)
+//   - silhouette plate (front = flooded opaque texture, rim = edge colour, back = generated back view or the body's colour)
 //   - contour eroded ~2px and the texture flooded with the edge colour, so rim
 //     vertices never open a see-through hole into the plate's inside
 //   - 3-joint squash & stretch rig (legs -> belly -> head, height smoothstep)
@@ -613,6 +613,14 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
   }
   _lap('mask+erode+flood');
   const texPng = encodePng(bw, bh, Buffer.from(tex));
+  // the body's colour: the median of the drawing, leaving out the dark outlines
+  const px = [[], [], []];
+  for (let y = 0; y < bh; y += 3) for (let x = 0; x < bw; x += 3) {
+    const i = (y * bw + x) * 4;
+    if (!mask[(y0 + y) * w + x0 + x] || tex[i] + tex[i + 1] + tex[i + 2] < 270) continue;
+    for (let k = 0; k < 3; k++) px[k].push(tex[i + k]);
+  }
+  const bodyColour = px[0].length ? px.map((a) => a.sort((p, q) => p - q)[a.length >> 1]) : [200, 200, 200];
   // back of the plate: a generated back view, fitted to the same box and mirrored (seen from behind, left and right swap)
   let backPng = null;
   if (backRgba && backW && backH) {
@@ -655,8 +663,9 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
           queue.push(n);
         }
       }
-      // Anything still unreached is walled in by outlines, such as a hand that sticks out.
-      for (let i = 0; i < bw * bh; i++) if (!known[i]) for (let k = 0; k < 3; k++) bt[i * 4 + k] = tex[i * 4 + k];
+      // Anything still unreached is walled in by outlines, such as a hand that sticks out. It takes the
+      // body's colour: taking the front drawing here put a second face on the back (run 27).
+      for (let i = 0; i < bw * bh; i++) if (!known[i]) for (let k = 0; k < 3; k++) bt[i * 4 + k] = bodyColour[k];
       // The back is seen in passing, so half size is enough. It also keeps the GLB
       // under the asset store's body limit: a stored GLB of 3.47 MB was refused.
       const hw = bw >> 1, hh = bh >> 1, small = new Uint8Array(hw * hh * 4);
@@ -667,6 +676,8 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
       backPng = encodePng(hw, hh, Buffer.from(small));
     }
   }
+  // No back drawing: the body's own colour reads as a back. The outline colour looked like a hole.
+  if (!backPng) backPng = encodePng(4, 4, Buffer.from(Array.from({ length: 16 }, () => [...bodyColour, 255]).flat()));
   // contours from the eroded mask (cropped space), simplified + Chaikin x2
   const loopsPx = traceLoops(mask, w, h)
     .map((loop) => loop.map(([x, y]) => [x - x0, y - y0]))

@@ -1384,7 +1384,8 @@ const BACK_PROMPT = 'Redraw this exact same character as seen from directly behi
 async function makeBack(rawPngBuf, keyCh) {
   if (!MODEL_API_KEY || !rawPngBuf) return null;
   try {
-    const b64 = await callImageEdit(rawPngBuf.toString('base64'), BACK_PROMPT);
+    const raw = rawPngBuf.toString('base64');
+    const b64 = await callImageEdit(raw, BACK_PROMPT) || await callImageEdit(raw, BACK_PROMPT);   // the edit API answers 500 now and then
     if (!b64) { console.log('[AR] back-failed', JSON.stringify({ status: lastEditStatus })); return null; }
     return decodePng(makeTransparent(Buffer.from(b64, 'base64'), keyCh));
   } catch (e) { console.log('[AR] back-failed', JSON.stringify({ error: String(e?.message || e) })); return null; }

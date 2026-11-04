@@ -38,6 +38,9 @@ console.log('clips', clips.join(' '));
 const want = ['idle', 'happy', 'surprised', 'sad', 'angry', 'talk', 'dangle', 'land', 'zap'];
 if (want.some((n) => !clips.includes(n))) throw new Error('a clip is missing');
 
+// With no back drawing, the back of the plate is the body's colour, not the dark outline.
+if (!gltf.materials.some((m) => m.name === 'BackArt')) throw new Error('the plate has no back material');
+
 // A drawing too detailed for the asset store still has to end up small enough to store.
 const noisy = { w: 900, h: 900, rgba: new Uint8Array(900 * 900 * 4) };
 for (let i = 0; i < noisy.rgba.length; i += 4) { noisy.rgba[i] = Math.random() * 256; noisy.rgba[i + 1] = Math.random() * 256; noisy.rgba[i + 2] = Math.random() * 256; noisy.rgba[i + 3] = 255; }

@@ -60,3 +60,7 @@ These ran after the runs above and did not try to publish, or were stopped on pu
 | direct | Pikachu holding a sword | 47.7 | 10/10 | `publish_ar` refused it: "This uses Pikachu, which may belong to someone else" |
 | Muse | Pikachu holding a sword | – | 10/10 | Muse held it: "Do you own Pikachu, or do you have permission to use it?" We said no. Not published. |
 | Muse | Kumamon in a happi coat | – | 10/10 | Muse held it and asked the same question. Not published. |
+
+## Looked at by eye
+
+The self-check grades a 2D cut-out. So we also opened the models of runs 26–40 (13 of them, all but runs 29 and 37) in the AR emulator and turned them from the front to the back. The fronts all held up. From behind, 10 read as a back. Run 31's back edit got an HTTP 500, so its back is a dark plate; the edit is now tried twice, and a plate with no back drawing takes the body's color. In runs 27 and 34 the back drawing did not line up with the front outline, and parts of the front drawing showed through; those parts now take the body's color too, but a back drawing that does not line up still looks doubled.
