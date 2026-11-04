@@ -1,10 +1,10 @@
-# AR Creator — Talk to Muse, unlock AR
+# MOSHI MOSHI — Say hello to your characters
 
 **Talk to Muse, and a character you can touch and talk to is born inside HACKAR:S — our production WebAR platform.** Hand interactions designed for AR glasses, tried on today's phones.
 
 An MCP connector for the **Meta Global AI Developer Hackathon** (Cerebral Valley, Oct 26 – Nov 4, 2026), built by HACK IT INC. (solo).
 
-Say a one-word theme in Muse, and this connector:
+Say the passphrase "Moshi Moshi" in Muse to start, give a one-word theme, and this connector:
 
 1. **Composes** the character server-side with the Meta Model API — `muse-spark-1.3` designs the title, overlay text, base color, the magic spell, and the character's **name and personality** (JSON); `muse-image-1.0` generates the artwork, plus face variants (happy / surprised / sad / angry) via image edits, each re-cut with the original silhouette mask. Token usage is logged on every run as Tooling evidence. Muse Spark then **checks its own artwork with vision** — the cut-out on a gray floor, as it will stand in AR — and if it fails (holes, a cropped limb, leftover background) it writes the fix into a new image prompt and redraws once.
 2. **Builds a semi-3D model on the server** (`api/glb.mjs`, pure JS): the flat artwork becomes a plate with real thickness (1/15 of its height), an edge-coloured rim, a baked ground shadow, a 3-joint squash-and-stretch rig, and **nine named animation clips** — `idle` / `happy` / `surprised` / `sad` / `angry` / `talk` / `dangle` / `land` / `zap`.
@@ -72,3 +72,7 @@ Connect the deployed `/mcp` endpoint as a custom connector in the Muse app, then
 ## License
 
 © 2026 HACK IT INC. All rights reserved. This repository is public so the hackathon judges can review the work; no license to use, copy or modify it is granted. Third-party components keep their own licenses — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The spell effects come from **Ultra Elements** by Humpalumps (https://github.com/Humpalumps/ultra-elements), MIT License.
+
+## Ray-Ban Display web app (prototype)
+
+`glasses-app/` is an HTML web app built to the Meta Ray-Ban Display spec. It runs in Meta's official simulator and has not been tested on hardware. Every screen in it is a scripted demo: home devices, shopping and the other daily-life screens are not connected to anything.

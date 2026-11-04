@@ -1,4 +1,4 @@
-// AR Creator — 「Talk to Muse, unlock AR」
+// MOSHI MOSHI — 「Talk to Muse, unlock AR」
 // Muse の会話からコネクターがアクションし、Meta Model API で AR の中身を組み立てて、
 // アプリレス WebAR として公開する MCP サーバー（Streamable HTTP・ステートレス）。
 // 構造は 以前の自社コネクター試作と同じ流儀：単一ファイル＋署名付き「カード」メモで状態を持つ。
@@ -558,7 +558,7 @@ function arPage(tok) {
   const p = readTok(tok);
   if (!p) return new Response(pageShell('リンクが無効です', '<p>この AR のリンクは確認できませんでした。Muse で作り直してね。</p>'), { status: 404, headers: htmlHeaders() });
   const cfg = { title: p.ti, text: p.tx, color: p.c, effect: p.e, theme: p.th, image: p.im ? `/img/${p.im}` : null, bg: p.bg || 'card', mo: p.mo || 'bounce' };
-  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${esc(p.ti)} — AR Creator</title>
+  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${esc(p.ti)} — MOSHI MOSHI</title>
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#0b0b10;font-family:-apple-system,'Hiragino Sans',sans-serif;color:#fff}
 #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:linear-gradient(160deg,${esc(p.c)},#14141d 75%)}
@@ -911,7 +911,7 @@ function arPageUltra(tok) {
   const p = readTok(tok);
   if (!p) return new Response(pageShell('リンクが無効です', '<p>この AR のリンクは確認できませんでした。Muse で作り直してね。</p>'), { status: 404, headers: htmlHeaders() });
   const cfg = { title: p.ti, text: p.tx, color: p.c, effect: p.e, theme: p.th, image: p.im ? `/img/${p.im}` : null, bg: p.bg || 'card', mo: p.mo || 'bounce' };
-  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${esc(p.ti)} — AR Creator</title>
+  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${esc(p.ti)} — MOSHI MOSHI</title>
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#0b0b10;font-family:-apple-system,'Hiragino Sans',sans-serif;color:#fff}
 #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:linear-gradient(160deg,${esc(p.c)},#14141d 75%)}
@@ -1156,7 +1156,7 @@ function imgResponse(id) {
 function certPage(tok) {
   const p = readTok(tok);
   if (!p) return new Response(pageShell('リンクが無効です', '<p>この制作証明は確認できませんでした。</p>'), { status: 404, headers: htmlHeaders() });
-  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>制作証明 — AR Creator</title>
+  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>制作証明 — MOSHI MOSHI</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#101018;color:#f5f0e6;font-family:-apple-system,'Hiragino Sans',sans-serif;padding:24px 16px;box-sizing:border-box}
 .card{max-width:420px;width:100%;border:1.5px solid #d4af37;border-radius:18px;padding:30px 26px;background:linear-gradient(165deg,#1b1b28,#12121c);box-shadow:0 18px 50px rgba(0,0,0,.5);text-align:center}
 h1{font-size:15px;letter-spacing:.35em;color:#d4af37;margin:0 0 6px}p{line-height:1.8;margin:6px 0;color:#cfc9bb}.title{font-size:24px;font-weight:900;color:#fff;margin:14px 0 2px}.theme{font-size:14px}.row{margin-top:16px;font-size:13px;color:#9d968a}.seal{margin:18px auto 4px;width:64px;height:64px;border-radius:50%;border:1.5px solid #d4af37;display:grid;place-items:center;font-size:24px;color:#d4af37}</style></head>
@@ -1173,10 +1173,11 @@ ${p.h ? `<div class="row">作品（HACKAR:S）<br><a href="${esc(p.h)}" style="c
 const htmlHeaders = () => ({ 'content-type': 'text/html; charset=utf-8' });
 const pageShell = (title, inner) => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F4F4F2;color:#1C1C1E;font-family:-apple-system,'Hiragino Sans',sans-serif;padding:24px;text-align:center}p{line-height:1.8;color:#55555B}</style></head><body><main><h1>${esc(title)}</h1>${inner}</main></body></html>`;
 
-const browserPage = () => new Response(pageShell('AR Creator は Muse で使ってね', '<p>この入口は Muse の相棒が AR を作りに来る場所です。<br>Muse アプリで AR Creator をつないで、「AR作って」と話しかけてみて。</p>'), { status: 200, headers: htmlHeaders() });
+const browserPage = () => new Response(pageShell('MOSHI MOSHI は Muse で使ってね', '<p>この入口は Muse の相棒が AR を作りに来る場所です。<br>Muse アプリで MOSHI MOSHI をつないで、「AR作って」と話しかけてみて。</p>'), { status: 200, headers: htmlHeaders() });
 
 // ---- Muse への話し方ガイド ----
-const VOICE = 'AR Creator は、ユーザーが Muse との会話で AR（カメラに重なる小さな体験）を作って公開できる仕組み。あなたはユーザーの相棒として、いつもの自分の名前と口調で案内する。'
+const VOICE = '合言葉は「もしもし」（Moshi Moshi）。ユーザーがこの合言葉を言ったら、それが始まりの合図なので start_create を呼ぶ。'
+  + 'MOSHI MOSHI は、ユーザーが Muse との会話で AR（カメラに重なる小さな体験）を作って公開できる仕組み。あなたはユーザーの相棒として、いつもの自分の名前と口調で案内する。'
   + 'コネクター・MCP・API・トークン・サーバーなどの仕組みの言葉は、必要なとき以外は使わない。'
   + '進め方は3つだけ：① start_create で参加の確認とテーマを聞く（テーマはユーザー本人の言葉をそのまま渡す。あなたが勝手にテーマを決めない）'
   + '② テーマが決まったら compose_ar を呼ぶ（AR の中身の構成はサーバー側のモデルが行う）'
@@ -1513,13 +1514,13 @@ function taskText(d, task, en) {
 
 function buildServer() {
   const server = new McpServer(
-    { name: 'ar-creator', title: 'AR Creator', version: '1.0.0' },
+    { name: 'ar-creator', title: 'MOSHI MOSHI', version: '1.0.0' },
     { instructions: VOICE },
   );
 
   server.registerTool('start_create', {
     title: 'AR作りを始める',
-    description: 'AR作りを始める。ユーザーが「AR作って」「ARを作りたい」と言ったら、聞き返しをせず、すぐに agreed を付けずに呼ぶ（参加の確認文が返る）。返ってきた文を相棒の口調で伝える。ユーザーが「いいよ」「OK」などはっきり同意したときだけ agreed=true で呼び直す。あなたの判断で agreed=true にしない。作りたいARのテーマをユーザーが言っていたら theme にその言葉をそのまま入れる。',
+    description: 'AR作りを始める。ユーザーが合言葉「もしもし」「Moshi Moshi」、または「AR作って」「ARを作りたい」と言ったら、聞き返しをせず、すぐに agreed を付けずに呼ぶ（参加の確認文が返る）。返ってきた文を相棒の口調で伝える。ユーザーが「いいよ」「OK」などはっきり同意したときだけ agreed=true で呼び直す。あなたの判断で agreed=true にしない。作りたいARのテーマをユーザーが言っていたら theme にその言葉をそのまま入れる。',
     inputSchema: {
       nickname: nickArg,
       theme: z.string().optional().describe('ユーザーが言った作りたいARのテーマ（一言、そのまま）'),
@@ -1532,7 +1533,7 @@ function buildServer() {
     if (!u.ownerId) { u.ownerId = mintOwnerId(); users.set(u.ownerId, u); }
     if (!agreed && !u.agreed) {
       return {
-        content: [{ type: 'text', text: langOf(theme || u.theme) === 'en' ? 'Let\'s make an AR character together!\nOne thing first: AR Creator only keeps your nickname, your theme and the AR you make. Nothing else is shared.\n\nSay "OK" to start. What should it be? Tell me a theme in a few words — a character, a brand or an IP.' : 'AR、一緒に作ろう！\nその前にひとつだけ。呼び名と、作りたいテーマ、作ったARの情報だけを AR Creator に預けるね。それ以外は渡さないよ。\n\n「いいよ」で始めよう。どんなARにしたい？テーマを一言で教えて。' }],
+        content: [{ type: 'text', text: langOf(theme || u.theme) === 'en' ? 'Let\'s make an AR character together!\nOne thing first: MOSHI MOSHI only keeps your nickname, your theme and the AR you make. Nothing else is shared.\n\nSay "OK" to start. What should it be? Tell me a theme in a few words — a character, a brand or an IP.' : 'AR、一緒に作ろう！\nその前にひとつだけ。呼び名と、作りたいテーマ、作ったARの情報だけを MOSHI MOSHI に預けるね。それ以外は渡さないよ。\n\n「いいよ」で始めよう。どんなARにしたい？テーマを一言で教えて。' }],
         structuredContent: { needsAgreement: true, shares: ['呼び名', 'テーマ', '作ったARの情報'], card: packCard(u) },
       };
     }
