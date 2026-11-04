@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "description": "Ultra Elements spells as an overlay layer for HACKAR:S WebAR (built for the Meta Global AI Developer Hackathon).",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "scripts": {
     "build": "vite build && node scripts/catalog.mjs"
   },
