@@ -549,6 +549,22 @@ function quatMul(q1, q2) { // q1 * q2
 }
 
 const DBG = typeof process !== 'undefined' && process.env && process.env.GLB_DEBUG;
+// The asset store takes about 4.5 MB of base64, so a GLB has to stay near 3.2 MB. A detailed drawing
+// can go over, and a model that cannot be stored cannot be published, so the textures shrink to fit.
+export const MAX_GLB_BYTES = 3_200_000;
+export function buildFittingGlb({ front, back = null, encodePng, scale, name = 'character', limit = MAX_GLB_BYTES }) {
+  let built;
+  for (let tries = 0; tries < 4; tries++) {
+    built = buildGlb({ rgba: front.rgba, w: front.w, h: front.h, encodePng, name, ...(back ? { backRgba: back.rgba, backW: back.w, backH: back.h } : {}) });
+    built.width = front.w;
+    if (built.glb.length <= limit) break;
+    const k = Math.sqrt(limit / built.glb.length) * 0.95;
+    front = scale(front, Math.round(front.w * k), Math.round(front.h * k));
+    if (back) back = scale(back, Math.round(back.w * k), Math.round(back.h * k));
+  }
+  return built;
+}
+
 export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba = null, backW = 0, backH = 0 }) {
   const _t0 = Date.now(); const _lap = (s) => { if (DBG) console.log('[glb]', s, Date.now() - _t0, 'ms'); };
   if (!rgba || rgba.length < w * h * 4) throw new Error('rgba size mismatch');

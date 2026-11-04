@@ -2,7 +2,7 @@
 // Usage: node tools/test_glb_local.mjs [<rgba.bin> <w> <h> <out.glb>]
 import { readFileSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
-import { buildGlb } from '../api/glb.mjs';
+import { buildGlb, buildFittingGlb } from '../api/glb.mjs';
 const CRC = (() => { const t = new Int32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c; } return t; })();
 function chunk(type, data) {
   const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0);
@@ -37,3 +37,20 @@ console.log('built', glb.length, 'bytes, aspect', aspect.toFixed(4));
 console.log('clips', clips.join(' '));
 const want = ['idle', 'happy', 'surprised', 'sad', 'angry', 'talk', 'dangle', 'land', 'zap'];
 if (want.some((n) => !clips.includes(n))) throw new Error('a clip is missing');
+
+// A drawing too detailed for the asset store still has to end up small enough to store.
+const noisy = { w: 900, h: 900, rgba: new Uint8Array(900 * 900 * 4) };
+for (let i = 0; i < noisy.rgba.length; i += 4) { noisy.rgba[i] = Math.random() * 256; noisy.rgba[i + 1] = Math.random() * 256; noisy.rgba[i + 2] = Math.random() * 256; noisy.rgba[i + 3] = 255; }
+const nearest = (img, tw, th) => {
+  const out = new Uint8Array(tw * th * 4);
+  for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) {
+    const s = (Math.floor(y * img.h / th) * img.w + Math.floor(x * img.w / tw)) * 4;
+    out.set(img.rgba.subarray(s, s + 4), (y * tw + x) * 4);
+  }
+  return { w: tw, h: th, rgba: out };
+};
+const limit = 1_000_000;
+const fitted = buildFittingGlb({ front: noisy, back: noisy, encodePng, scale: nearest, limit });
+console.log('fitted', fitted.glb.length, 'bytes at width', fitted.width);
+if (fitted.glb.length > limit) throw new Error('the model is still too large');
+if (fitted.width >= noisy.w) throw new Error('the model was not made smaller');

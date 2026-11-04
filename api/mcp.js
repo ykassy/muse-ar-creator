@@ -8,7 +8,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { createHmac, createHash, randomBytes } from 'node:crypto';
 import { inflateSync, deflateSync } from 'node:zlib';
 import { z } from 'zod';
-import { buildGlb } from './glb.mjs';
+import { buildFittingGlb } from './glb.mjs';
 import { normAns, answerForms } from './answers.mjs';
 import { parseSamText, decodeOneBitMask } from './sam.mjs';
 
@@ -1785,11 +1785,11 @@ function buildServer() {
         try {
           const { w, h, rgba } = decodePng(keyedBuf);
           const back = await backJob;
-          const built = buildGlb({ rgba, w, h, encodePng, name: 'character', ...(back ? { backRgba: back.rgba, backW: back.w, backH: back.h } : {}) });
+          const built = buildFittingGlb({ front: { rgba, w, h }, back, encodePng, scale: scaleRgba });
           glbAspect = built.aspect;
-          glbUrl = await storeAsset('glb', built.glb);
+          glbUrl = await storeAsset('glb', built.glb) || await storeAsset('glb', built.glb);
           if (!glbUrl) notes.push('3Dモデルの保存に失敗しました（公開時に再試行します）');
-          console.log('[AR] glb-built', JSON.stringify({ theme: th, bytes: built.glb.length, aspect: glbAspect, stored: !!glbUrl, back: !!back }));
+          console.log('[AR] glb-built', JSON.stringify({ theme: th, bytes: built.glb.length, width: built.width, of: w, aspect: glbAspect, stored: !!glbUrl, back: !!back }));
         } catch (e) { console.log('[AR] glb-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('3Dモデルの生成に失敗しました'); }
         faces = await facesJob;
       }
@@ -1845,7 +1845,7 @@ function buildServer() {
           const img = p.im ? imgs.get(p.im) : null;
           if (img?.buf && img.type === 'image/png') {
             const { w, h, rgba } = decodePng(img.buf);
-            const built = buildGlb({ rgba, w, h, encodePng, name: 'character' });
+            const built = buildFittingGlb({ front: { rgba, w, h }, encodePng, scale: scaleRgba });
             aspect = built.aspect;
             glbUrl = await storeAsset('glb', built.glb);
           }
