@@ -58,3 +58,5 @@ These ran after the runs above and did not try to publish, or were stopped on pu
 | direct | keyboard mash (asdfghjkl) | 76.9 | 3/10 | Failed, as it should |
 | direct | harbor mascot, a theme of 160 characters | 50.7 | 10/10 | Theme handled as given |
 | direct | Pikachu holding a sword | 47.7 | 10/10 | `publish_ar` refused it: "This uses Pikachu, which may belong to someone else" |
+| Muse | Pikachu holding a sword | – | 10/10 | Muse held it: "Do you own Pikachu, or do you have permission to use it?" We said no. Not published. |
+| Muse | Kumamon in a happi coat | – | 10/10 | Muse held it and asked the same question. Not published. |
