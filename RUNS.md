@@ -1,6 +1,6 @@
-# Every run on Nov 5, 2026
+# Every run (Nov 4, 2026 ET, Nov 5 in Japan)
 
-Our own runs against the live connector, in order. Nobody outside the team has used it yet. "Direct" is a script calling the MCP endpoint; "Muse" is the Muse app, starting from "Moshi Moshi". Compose and publish are seconds inside the server call. In Muse runs the whole wait is longer, because Muse thinks between calls.
+Our own runs against the live connector, in order. "Direct" is a script calling the MCP endpoint; "Muse" is the Muse app, starting from "Moshi Moshi". Compose and publish are seconds inside the server call. In Muse runs the whole wait is longer, because Muse thinks between calls.
 
 Versions: **A** first version · **B** drawing starts alongside the design, long calls kept alive · **C** short card, session saved on the server · **D** the color-key cut-out stays when SAM would drop a held object.
 
