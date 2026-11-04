@@ -1485,8 +1485,11 @@ async function callSamCutout(rawPngBuf, chromaBuf) {
     const coverage = samIn / total;
     const iou = either ? both / either : 0;
     console.log('[AR] sam-cutout', JSON.stringify({ processed, coverage: +coverage.toFixed(3), iou: +iou.toFixed(3), confidence: rec.confidence }));
-    if (coverage < 0.03 || coverage > 0.92 || iou < 0.5) return null;
-    return { buf: encodePng(raw.w, raw.h, out), processed };
+    if (coverage < 0.03 || coverage > 0.92) return null;
+    // SAM is asked for the character, so it leaves out what the character holds. In our runs a match
+    // under 0.9 always meant a lost umbrella or lantern. The color key keeps everything that was drawn.
+    if (iou < 0.9) return { buf: chromaBuf, processed, kept: false };
+    return { buf: encodePng(raw.w, raw.h, out), processed, kept: true };
   } catch (e) { console.log('[AR] sam-error', JSON.stringify({ error: String(e?.message || e).slice(0, 120) })); return null; }
 }
 
@@ -1683,7 +1686,7 @@ function buildServer() {
       // SAM 3.1 のマスクが使えれば、クロマキーの輪郭を差し替える（GLB・表情の前に）。
       if (keyedBuf && rawPngBuf && MODEL_API_KEY) {
         const sam = await callSamCutout(rawPngBuf, keyedBuf);
-        if (sam) { keyedBuf = sam.buf; samUsage = { calls: 1 }; }
+        if (sam) { keyedBuf = sam.buf; samUsage = { calls: 1, kept: sam.kept }; }
       }
       // 表情と裏の絵は時間がかかるので、自己チェックと同時に始める。描き直しになったら作り直す。
       let backJob = null, facesJob = null;
@@ -1751,11 +1754,11 @@ function buildServer() {
       u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
       const spell = spellOf(comp.effect);
       const summary = usedModel
-        ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}${samUsage ? '／切り抜きは SAM 3.1' : ''}${check ? `／仕上がりは Muse Spark が目で確認（${redrawn ? `${check.before.score}点で不合格→描き直して${check.score}点` : `${check.score}点${check.ok ? 'で合格' : '・時間内に直せず'}`}、${usageText('Spark', checkUsage)}）` : ''}）`
+        ? `Muse Spark が構成しました（${usageText('Spark', sparkUsage)}${imgId ? `／素材画像は Muse Image で生成（${usageText('Image', imageUsage)}）` : ''}${samUsage ? (samUsage.kept ? '／切り抜きは SAM 3.1' : '／切り抜きは SAM 3.1 で確認') : ''}${check ? `／仕上がりは Muse Spark が目で確認（${redrawn ? `${check.before.score}点で不合格→描き直して${check.score}点` : `${check.score}点${check.ok ? 'で合格' : '・時間内に直せず'}`}、${usageText('Spark', checkUsage)}）` : ''}）`
         : 'テンプレート構成で組み立てました（モデル未使用）';
       const en = (talkLang || langOf(th)) === 'en';
       const summaryEn = usedModel
-        ? `Composed by Muse Spark (${usageTextEn('Spark', sparkUsage)}${imgId ? `; artwork by Muse Image (${usageTextEn('Image', imageUsage)})` : ''}${samUsage ? '; cut out by SAM 3.1' : ''}${check ? `; Muse Spark checked the result with vision (${redrawn ? `${check.before.score}/10 failed → redrawn → ${check.score}/10` : `${check.score}/10${check.ok ? ', passed' : ', could not fix in time'}`}; ${usageTextEn('Spark', checkUsage)})` : ''})`
+        ? `Composed by Muse Spark (${usageTextEn('Spark', sparkUsage)}${imgId ? `; artwork by Muse Image (${usageTextEn('Image', imageUsage)})` : ''}${samUsage ? (samUsage.kept ? '; cut out by SAM 3.1' : '; cut-out checked by SAM 3.1') : ''}${check ? `; Muse Spark checked the result with vision (${redrawn ? `${check.before.score}/10 failed → redrawn → ${check.score}/10` : `${check.score}/10${check.ok ? ', passed' : ', could not fix in time'}`}; ${usageTextEn('Spark', checkUsage)})` : ''})`
         : 'Built from the template (no model used)';
       const held = check && !check.ok;
       const heldIssues = held ? (check.issues || []).slice(0, 3).join(', ') : '';

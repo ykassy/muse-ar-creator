@@ -46,7 +46,9 @@ If the model API is unavailable, composition falls back to a deterministic templ
 ## Architecture
 
 - `api/mcp.js` — single-file MCP server (Streamable HTTP, stateless) on `@modelcontextprotocol/sdk`. `api/glb.mjs` — the dependency-free GLB builder (the PNG codec is shared with `mcp.js`). `api/talk.js` — poke-to-talk endpoint (Muse Voice transcription + Muse Spark in-character reply).
-- **State & identity**: sessions are keyed by a random owner id carried in an HMAC-signed conversation card (`HC1.…`). A nickname alone never resumes another person's session — consent, theme and AR state travel only with the card. The server refuses to start when `CARD_SECRET` is unset (the old default was public, so cards would be forgeable).
+- **State & identity**: sessions are keyed by a random owner id. In Muse almost every call lands on a different server instance, and Muse has to copy the card into each call itself, so the card is only a signed pointer of 27 characters (`HC3.<owner>.<version>.<signature>`). A nickname alone never resumes another person's session. The server refuses to start when `CARD_SECRET` is unset (the old default was public, so cards would be forgeable).
+- **Session state**: consent, theme, the character, its certificate and its link are saved as write-once versions through the asset store. Reading walks forward to the newest version, so an old card still finds the latest character and a reply lost on the way costs nothing. While `compose_ar` runs it marks the session as working, so a second call is told to wait instead of starting over; an unreadable card is reported as such instead of looking like "nothing made yet". Long `HC1` cards from older chats still work.
+- **Long calls**: `compose_ar`, `publish_ar`, `remix_ar` and `make_play` answer as a stream with a comment every 8 seconds, because Muse dropped calls that stayed silent for about 50 seconds.
 - **Persistence**: generated art, GLBs and face variants are stored through HACKAR:S `POST /api/asset-store` at compose time, so publishing works from any server instance; in-memory copies are only a cache.
 - `muse-spark-1.3` is a reasoning model: compose uses `max_tokens: 2500`, retries once on empty content, strips code fences, and falls back to the template on failure.
 - The Blender pipeline in `pipeline/` is the reference implementation the JS builder was ported from (same timelines, weights and proportions — the in-house plate recipe: thickness = height/15, rim colour = median edge colour, opaque flooded texture, mask eroded ~2px so the rim never opens a see-through hole).
@@ -60,7 +62,7 @@ If the model API is unavailable, composition falls back to a deterministic templ
 | `publish_ar` | Creates the real HACKAR:S project (GLB + Ultra spell + Hand Play + expressions) and returns the hackar-s.com URL — the only deliverable URL |
 | `remix_ar` | Same character, different spell; then publish again |
 | `issue_certificate` | Issues the certificate page (one per creator) with model usage and the work's URL |
-| `make_play` | Muse Spark writes a quiz, riddles and a stamp rally hosted by the published character; stored at hackar-s.com/play/<id>, plus a short **join code** (e.g. `SUNNY-4821`) |
+| `make_play` | Muse Spark writes a quiz, riddles and a stamp rally hosted by the published character, from the session or from just its hackar-s.com link; stored at hackar-s.com/play/<id>, plus a short **join code** (e.g. `SUNNY-4821`) |
 | `play_rally` | The visitor side, inside Muse: say the join code, say where you are, answer the character's question — Muse checks it and hands out the stamp. Answers are stored as salted hashes, so a normal reply never shows them up front. This is not a secrecy guarantee: quiz choices are public, so a hash can be matched against them. Progress is a signed token that detects tampering; the spot is self-reported, so it does not prove a visit. Clear every spot and the character's AR link arrives |
 
 ## Setup
@@ -80,6 +82,7 @@ Environment variables (Vercel project settings):
 
 ```bash
 npm install
+npm test         # no network: builds a GLB from a drawn shape, checks how answers are matched
 npx vercel dev   # or deploy with: npx vercel --prod
 ```
 
