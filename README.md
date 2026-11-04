@@ -41,6 +41,8 @@ If the model API is unavailable, composition falls back to a deterministic templ
 
 ## What was built when (hackathon rules)
 
+[`BUILT_DURING.md`](BUILT_DURING.md) lists each change with its date, including the pull requests in the closed-source HACKAR:S repository.
+
 | Part | When |
 |---|---|
 | This connector: MCP server (`api/mcp.js`), the JS GLB builder (`api/glb.mjs`), the Blender reference pipeline (`pipeline/`), expression generation, the talk endpoint (`api/talk.js`) | **Built during the hackathon (Oct 26 – Nov 4, 2026)** |

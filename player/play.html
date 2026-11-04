@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HACKAR:S Play</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800;900&display=swap" rel="stylesheet">
+<!-- Play: quiz / riddle / stamp rally made by the Muse AR Creator connector around one character.
+     The content is a JSON file the connector stored under deployments/ar-creator/<id>.json;
+     /play/<id> opens it. Clearing everything leads to the character's AR (hackar-s.com/slam-ar/...).
+     Answers are stored as SHA-256 hashes; progress stays in this browser (localStorage). -->
+<style>
+:root{--paper:#fff8e7;--paper2:#fdf0d2;--line:#e9dcc0;--stitch:#dccaa4;--ink:#6b5340;--inkd:#4f3b2b;--shadow:rgba(92,66,44,.28);
+--leaf:#8fcf6e;--leafd:#5c9e45;--sky:#7ec8ea;--skyd:#4a9fca;--peach:#ffb98a;--pink:#f7a3bd;--sun:#ffd95c;--tag:#f59e4c;--accent:#f59e4c}
+*{box-sizing:border-box}
+html,body{margin:0;background:#f6ecd6;color:var(--ink);font-family:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Hiragino Sans",sans-serif;font-weight:700;-webkit-text-size-adjust:100%}
+body{min-height:100dvh;background:radial-gradient(circle at 20% 0%,#fff3d6 0,transparent 60%),radial-gradient(circle at 100% 100%,#ffe6cf 0,transparent 55%),#f6ecd6}
+.wrap{max-width:520px;margin:0 auto;padding:16px 16px 40px}
+.card{position:relative;background:var(--paper);border-radius:26px;box-shadow:0 8px 22px var(--shadow);padding:18px}
+.card:before{content:"";position:absolute;inset:7px;border:2.5px dashed var(--stitch);border-radius:20px;pointer-events:none}
+.tag{position:absolute;left:16px;top:-14px;transform:rotate(-4deg);background:var(--tag);color:#fff;font:900 13px/1 inherit;font-family:inherit;padding:7px 13px;border-radius:999px;box-shadow:0 3px 8px var(--shadow);white-space:nowrap}
+.host{display:flex;gap:12px;align-items:flex-end;margin:6px 0 18px}
+.host img{width:96px;height:96px;object-fit:contain;flex:none;filter:drop-shadow(0 6px 6px rgba(92,66,44,.25));animation:bob 2.4s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(-5px)}}
+.bubble{position:relative;flex:1;background:#fff;border-radius:20px;padding:12px 14px;font-size:15px;line-height:1.55;color:var(--inkd);box-shadow:0 4px 12px var(--shadow);min-height:56px}
+.bubble:after{content:"";position:absolute;left:-9px;bottom:16px;border:9px solid transparent;border-left:0;border-right-color:#fff}
+h1{font-size:22px;margin:4px 0 2px;color:var(--inkd);font-weight:900}
+.sub{font-size:13px;opacity:.8;margin-bottom:6px}
+.menu{display:grid;gap:14px;margin-top:20px}
+.kind{display:flex;align-items:center;gap:14px;border:0;width:100%;text-align:left;background:var(--paper);border-radius:22px;padding:16px;box-shadow:0 5px 0 rgba(0,0,0,.08),0 8px 18px var(--shadow);font:inherit;color:inherit;cursor:pointer}
+.kind:active{transform:translateY(2px)}
+.kind .ic{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;font-size:28px;flex:none}
+.kind b{display:block;font-size:17px;color:var(--inkd)}
+.kind small{font-size:12px;opacity:.75}
+.kind .st{margin-left:auto;font-size:12px;font-weight:900;padding:6px 10px;border-radius:999px;background:var(--paper2)}
+.kind .st.ok{background:var(--leaf);color:#fff}
+.btn{text-decoration:none;display:inline-block;text-align:center;border:0;border-radius:999px;padding:13px 20px;font:900 16px/1 inherit;font-family:inherit;cursor:pointer;box-shadow:0 4px 0 rgba(0,0,0,.12);background:var(--leaf);color:#fff}
+.btn:active{transform:translateY(2px);box-shadow:0 2px 0 rgba(0,0,0,.12)}
+.btn.quiet{background:var(--paper2);color:var(--ink)}
+.btn.blue{background:var(--sky)}
+.btn.big{display:block;width:100%;padding:18px;font-size:18px}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.q{font-size:18px;line-height:1.6;color:var(--inkd);margin:6px 0 14px}
+.choices{display:grid;gap:10px}
+.choice{border:0;border-radius:18px;padding:14px 16px;text-align:left;font:800 16px/1.4 inherit;font-family:inherit;background:#fff;color:var(--inkd);box-shadow:0 3px 0 rgba(0,0,0,.08);cursor:pointer}
+.choice.ok{background:var(--leaf);color:#fff}.choice.ng{background:#f3b3b3;color:#fff}
+.choice[disabled]{cursor:default}
+.count{font-size:13px;opacity:.8}
+input.ans{width:100%;border:2.5px solid var(--line);border-radius:16px;padding:14px;font:800 18px inherit;font-family:inherit;color:var(--inkd);background:#fff;outline:none}
+input.ans:focus{border-color:var(--tag)}
+.hint{margin-top:10px;background:var(--paper2);border-radius:14px;padding:10px 12px;font-size:14px}
+.explain{margin-top:12px;font-size:14px;line-height:1.6;background:#fff;border-radius:14px;padding:10px 12px}
+.stamps{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin-top:8px}
+.spot{background:#fff;border-radius:20px;padding:12px;text-align:center;box-shadow:0 3px 0 rgba(0,0,0,.06)}
+.stamp{width:84px;height:84px;margin:4px auto 8px;border-radius:50%;border:3px dashed var(--stitch);display:grid;place-items:center;font-size:13px;opacity:.6}
+.stamp.on{border:4px solid var(--tag);opacity:1;background:#fff3e2;transform:rotate(-8deg)}
+.stamp.on img{width:66px;height:66px;object-fit:contain}
+.spot b{display:block;font-size:14px;color:var(--inkd)}
+.spot small{font-size:11px;opacity:.75}
+.back{background:none;border:0;font:800 14px inherit;font-family:inherit;color:var(--ink);padding:6px 0;margin-bottom:6px;cursor:pointer}
+.clear{text-align:center}
+.clear h2{font-size:24px;margin:6px 0;color:var(--inkd)}
+.qr{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.qr .spot img{width:100%;max-width:200px}
+.foot{margin-top:26px;text-align:center;font-size:11px;opacity:.6}
+.err{padding:40px 20px;text-align:center}
+.hidden{display:none!important}
+@media print{body{background:#fff}.noprint{display:none!important}.card{box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="err">Loading… / よみこみ中…</div></div>
+<script>
+(() => {
+  const SB = 'https://pgyuabajrswdkzuksqfu.supabase.co/storage/v1/object/public/deployments/ar-creator/'
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const qs = new URLSearchParams(location.search)
+  const gid = (location.pathname.match(/\/play\/([0-9a-f-]{36}|sample)/i) || [])[1] || qs.get('g') || ''
+  const app = document.getElementById('app')
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+  const sample = gid === 'sample'   // /play/sample: a built-in example (docs/play-sample.json)
+  if (!sample && !UUID.test(gid)) { app.innerHTML = '<div class="card err">This link is not valid. / このページのリンクが正しくないみたい。</div>'; return }
+
+  // answers: SHA-256 of "<gid>:<normalized answer>" (quiz: the choice index)
+  const norm = (s) => String(s || '').normalize('NFKC').toLowerCase()
+    .replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
+    .replace(/[\s、。・,.!?！？「」『』()（）"'\-]/g, '')
+  const hash = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode((D.salt || gid) + ':' + s)))].map((b) => b.toString(16).padStart(2, '0')).join('')
+  // People answer in sentences ("An umbrella!", "かさだよ"): try the whole reply, then its words. Same rules as play_rally in Muse.
+  const NOT_ANSWERS = new Set(['a', 'an', 'the', 'it', 'its', 's', 'is', 'i', 'im', 'think', 'guess', 'maybe', 'my', 'answer', 'that', 'this', 'must', 'be', 'are', 'you', 'um', 'uh', 'oh'])
+  const answerForms = (s) => {
+    const text = String(s || '').normalize('NFKC').toLowerCase()
+    const words = text.split(/[^a-z0-9\u3040-\u30ff\u4e00-\u9fff]+/).filter((w) => w && !NOT_ANSWERS.has(w))
+    const forms = new Set([norm(text), norm(words.join('')), ...words.map(norm)])
+    for (const f of [...forms]) {
+      forms.add(f.replace(/(です|だよ|だね|だ|かな|でしょう|でしょ|だと思う|とおもう)$/, ''))
+      if (/^[a-z]{3,}$/.test(f)) forms.add(f.endsWith('s') ? f.slice(0, -1) : f + 's')
+    }
+    forms.delete('')
+    return [...forms]
+  }
+
+  const KEY = 'hp-play:' + gid
+  let st = {}
+  try { st = JSON.parse(localStorage.getItem(KEY) || '{}') } catch {}
+  st.quiz = st.quiz || {}; st.riddle = st.riddle || {}; st.stamps = st.stamps || {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)) } catch {} }
+
+  let D = null
+  fetch(sample ? '/play-sample.json' : SB + gid + '.json').then((r) => { if (!r.ok) throw new Error(r.status); return r.json() }).then((d) => {
+    D = d
+    document.title = (d.host?.name || 'Play') + ' | HACKAR:S Play'
+    if (d.host?.color && /^#[0-9a-f]{6}$/i.test(d.host.color)) document.documentElement.style.setProperty('--tag', d.host.color)
+    const spot = parseInt(qs.get('spot'), 10)
+    if (qs.get('print') === '1') return showQr()
+    if (spot >= 1 && D.rally?.spots?.[spot - 1]) return showSpot(spot - 1)
+    showHome()
+  }).catch(() => { app.innerHTML = '<div class="card err">This game was not found. / このあそびは見つからなかったよ。</div>' })
+
+  const host = (line) => `<div class="host">${D.host?.img ? `<img src="${esc(D.host.img)}" alt="">` : ''}<div class="bubble" id="say">${esc(line)}</div></div>`
+  const say = (line) => { const b = document.getElementById('say'); if (b) b.textContent = line }
+  const has = (k) => (D.kinds || []).includes(k) && (k !== 'rally' || D.rally?.spots?.length)
+  const doneQuiz = () => (D.quiz || []).every((_, i) => st.quiz[i] != null)
+  const doneRiddle = () => (D.riddle || []).every((_, i) => st.riddle[i])
+  const doneRally = () => (D.rally?.spots || []).every((_, i) => st.stamps[i])
+  const allDone = () => (!has('quiz') || doneQuiz()) && (!has('riddle') || doneRiddle()) && (!has('rally') || doneRally())
+  // choices are shown in a stable shuffled order per question (the model tends to put the right one first);
+  // each button keeps its original index in data-j, which is what the answer hash is about
+  const order = (n, i) => { let h = 2166136261; for (const c of (D.salt || gid) + ':' + i) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0
+    const idx = [...Array(n).keys()]; for (let k = n - 1; k > 0; k--) { h = Math.imul(h ^ k, 16777619) >>> 0; const r = h % (k + 1); [idx[k], idx[r]] = [idx[r], idx[k]] } return idx }
+  const choiceBtns = (q, i) => order(q.choices.length, i).map((j) => `<button class="choice" data-j="${j}">${esc(q.choices[j])}</button>`).join('')
+  const quizScore = () => (D.quiz || []).filter((_, i) => st.quiz[i] === true).length
+  const top = () => window.scrollTo(0, 0)
+  // the content's language (the connector writes "lang"); the page's own words follow it
+  const L = (ja, en) => (D && D.lang === 'en' ? en : ja)
+  const foot = () => `<div class="foot">${L('HACKAR:S Play ・ Muse でつくった体験', 'HACKAR:S Play · made by talking to Muse')}</div>`
+
+  function showHome() {
+    top()
+    const k = []
+    if (has('quiz')) k.push(`<button class="kind" data-go="quiz"><span class="ic" style="background:#fff0c2">❓</span><span><b>${L('クイズ', 'Quiz')}</b><small>${L(`${D.quiz.length}問・${esc(D.host.name)}の世界`, `${D.quiz.length} questions · ${esc(D.host.name)}'s world`)}</small></span><span class="st ${doneQuiz() ? 'ok' : ''}">${doneQuiz() ? `${quizScore()}/${D.quiz.length} ${L('せいかい', 'correct')}` : L('あそぶ', 'Play')}</span></button>`)
+    if (has('riddle')) k.push(`<button class="kind" data-go="riddle"><span class="ic" style="background:#e3f3fb">🔎</span><span><b>${L('なぞとき', 'Riddles')}</b><small>${L(`${D.riddle.length}つの謎・ヒントあり`, `${D.riddle.length} riddles · with hints`)}</small></span><span class="st ${doneRiddle() ? 'ok' : ''}">${doneRiddle() ? L('クリア', 'Cleared') : `${Object.keys(st.riddle).length}/${D.riddle.length} ${L('とけた', 'solved')}`}</span></button>`)
+    if (has('rally')) k.push(`<button class="kind" data-go="rally"><span class="ic" style="background:#ffe3ec">📍</span><span><b>${L('スタンプラリー', 'Stamp rally')}</b><small>${L(`${D.rally.spots.length}か所をめぐる`, `visit ${D.rally.spots.length} spots`)}</small></span><span class="st ${doneRally() ? 'ok' : ''}">${Object.keys(st.stamps).length}/${D.rally.spots.length}</span></button>`)
+    const fin = allDone()
+    app.innerHTML = `<div class="card"><span class="tag">${esc(D.ip?.name || D.host.name)}</span>
+      <h1>${esc(D.title || D.host.name + L('とあそぼう', ': play together'))}</h1><div class="sub">${esc(D.ip?.world || '')}</div>
+      ${host(fin ? (D.host.clear || L('ぜんぶクリア！会いにきてね', 'All cleared! Come and meet me')) : (D.host.intro || L('あそびにきてくれてありがとう！', 'Thanks for coming to play!')))}
+      ${fin ? `<a class="btn big" href="${esc(D.ar)}">${L(`${esc(D.host.name)}に会いに行く（AR）`, `Meet ${esc(D.host.name)} in AR`)}</a>` : `<div class="sub">${L(`ぜんぶクリアすると、${esc(D.host.name)}に AR で会えるよ。`, `Clear everything to meet ${esc(D.host.name)} in AR.`)}</div>`}
+      </div><div class="menu">${k.join('')}</div>
+      ${has('rally') ? `<div class="row noprint"><a class="btn quiet" href="?print=1">${L('スポットのQRシート', 'QR sheet for the spots')}</a></div>` : ''}${foot()}`
+    app.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => ({ quiz: () => showQuiz(firstOpen('quiz')), riddle: showRiddles, rally: showRally })[b.dataset.go]())
+  }
+  const firstOpen = () => { const i = (D.quiz || []).findIndex((_, j) => st.quiz[j] == null); return i < 0 ? 0 : i }
+  const backBtn = (fn = 'home') => `<button class="back" data-back="${fn}">← ${L('もどる', 'Back')}</button>`
+  const wireBack = () => app.querySelectorAll('[data-back]').forEach((b) => b.onclick = () => (b.dataset.back === 'rally' ? showRally() : showHome()))
+
+  // --- quiz: one question at a time ---------------------------------------------------------
+  function showQuiz(i, after) {
+    top()
+    const q = D.quiz[i], answered = st.quiz[i] != null
+    app.innerHTML = `${backBtn()}<div class="card"><span class="tag">${L('クイズ', 'Quiz')} ${i + 1} / ${D.quiz.length}</span>
+      ${host(answered ? (st.quiz[i] ? (q.ok || L('せいかい！', 'Correct!')) : (q.ng || L('ざんねん！', 'Not quite!'))) : L('どれだと思う？', 'Which one do you think?'))}
+      <div class="q">${esc(q.q)}</div><div class="choices">${choiceBtns(q, i)}</div>
+      <div id="ex" class="explain ${answered ? '' : 'hidden'}">${esc(q.explain || '')}</div>
+      <div class="row ${answered ? '' : 'hidden'}" id="nx">${i + 1 < D.quiz.length ? `<button class="btn" id="next">${L('つぎへ', 'Next')}</button>` : `<button class="btn" id="fin">${L('けっかを見る', 'See results')}</button>`}</div></div>${foot()}`
+    wireBack()
+    const btns = [...app.querySelectorAll('.choice')]
+    const mark = async (pick) => {
+      for (const b of btns) b.disabled = true
+      for (const b of btns) if (await hash(b.dataset.j) === q.a) b.classList.add('ok')
+      const pb = btns.find((b) => +b.dataset.j === pick); if (pb && !pb.classList.contains('ok')) pb.classList.add('ng')
+    }
+    if (answered) mark(st.quiz[i + '_pick'] ?? null)
+    else btns.forEach((b) => b.onclick = async () => {
+      const ok = (await hash(b.dataset.j)) === q.a
+      st.quiz[i] = ok; st.quiz[i + '_pick'] = +b.dataset.j; save()
+      await mark(+b.dataset.j)
+      say(ok ? (q.ok || L('せいかい！', 'Correct!')) : (q.ng || L('ざんねん！', 'Not quite!')))
+      document.getElementById('ex').classList.remove('hidden'); document.getElementById('nx').classList.remove('hidden')
+      after && after(ok)
+    })
+    const n = document.getElementById('next'); if (n) n.onclick = () => showQuiz(i + 1)
+    const f = document.getElementById('fin'); if (f) f.onclick = showHome
+  }
+
+  // --- riddles: type the answer, up to two hints, then you may give up ----------------------
+  function showRiddles() {
+    top()
+    app.innerHTML = `${backBtn()}<div class="card"><span class="tag">${L('なぞとき', 'Riddles')}</span>${host(L('こたえはひらがなでも、カタカナでもいいよ。', 'Type your answer. Capitals and spaces don\'t matter.'))}</div>
+      <div class="menu">${D.riddle.map((r, i) => `<div class="card" id="r${i}"><span class="tag">${L('なぞ', 'Riddle')} ${i + 1}</span>${riddleBody(r, i)}</div>`).join('')}</div>${foot()}`
+    wireBack()
+    D.riddle.forEach((r, i) => wireRiddle(r, i))
+  }
+  function riddleBody(r, i, opts = {}) {
+    const s = st.riddle[i]
+    return `<div class="q">${esc(r.q)}</div>
+      ${s ? `<div class="explain">${s === 'solved' ? L('⭕ せいかい！', '⭕ Correct!') : L('🏳️ こたえ', '🏳️ Answer')}${L('：', ': ')}${esc(r.explain || '')}</div>` : `
+      <input class="ans" placeholder="${L('こたえを入れてね', 'Your answer')}" autocomplete="off">
+      <div class="hints"></div>
+      <div class="row"><button class="btn" data-act="ans">${L('こたえる', 'Answer')}</button><button class="btn quiet" data-act="hint">${L('ヒント', 'Hint')}</button><button class="btn quiet hidden" data-act="give">${L('あきらめる', 'Give up')}</button></div>`}`
+  }
+  function wireRiddle(r, i, done) {
+    const box = document.getElementById('r' + i); if (!box || st.riddle[i]) return
+    let shown = 0
+    const inp = box.querySelector('input'), hints = box.querySelector('.hints'), give = box.querySelector('[data-act=give]')
+    const solve = (how) => { st.riddle[i] = how; save(); box.innerHTML = `<span class="tag">${L('なぞ', 'Riddle')} ${i + 1}</span>` + riddleBody(r, i); say(how === 'solved' ? L('すごい！せいかい！', 'Amazing, you got it!') : L('こたえはこれだよ。つぎはいけるよ！', 'Here\'s the answer. You\'ll get the next one!')); done && done(how) }
+    box.querySelector('[data-act=ans]').onclick = async () => {
+      const hs = await Promise.all(answerForms(inp.value).map(hash))
+      if (hs.some((h) => (r.a || []).includes(h))) solve('solved')
+      else { say(L('うーん、ちがうみたい。ヒントを見てもいいよ。', 'Hmm, not that one. Try a hint!')); inp.select() }
+    }
+    inp.onkeydown = (e) => { if (e.key === 'Enter') box.querySelector('[data-act=ans]').click() }
+    box.querySelector('[data-act=hint]').onclick = () => {
+      if (shown < (r.hints || []).length) { hints.insertAdjacentHTML('beforeend', `<div class="hint">${L('ヒント', 'Hint ')}${shown + 1}${L('：', ': ')}${esc(r.hints[shown])}</div>`); shown++ }
+      if (shown >= (r.hints || []).length) give.classList.remove('hidden')
+    }
+    give.onclick = () => solve('given')
+  }
+
+  // --- stamp rally: each spot's QR opens ?spot=n; its task (a quiz question or a riddle) stamps it ---
+  function showRally() {
+    top()
+    const spots = D.rally.spots
+    app.innerHTML = `${backBtn()}<div class="card"><span class="tag">${L('スタンプラリー', 'Stamp rally')}</span>${host(doneRally() ? L('スタンプぜんぶそろったね！', 'You collected every stamp!') : L('スポットのQRコードを読んで、おだいをクリアするとスタンプがもらえるよ。', 'Scan the QR code at each spot and clear its challenge to get a stamp.'))}
+      <div class="stamps">${spots.map((s, i) => `<div class="spot"><div class="stamp ${st.stamps[i] ? 'on' : ''}">${st.stamps[i] && D.host.img ? `<img src="${esc(D.host.img)}" alt="">` : i + 1}</div><b>${esc(s.name)}</b><small>${esc(s.hint || '')}</small></div>`).join('')}</div></div>
+      <div class="row noprint"><a class="btn quiet" href="?print=1">${L('QRシートを開く', 'Open the QR sheet')}</a></div>${foot()}`
+    wireBack()
+  }
+  function showSpot(i) {
+    top()
+    const s = D.rally.spots[i], t = s.task || {}
+    const stamp = () => { st.stamps[i] = 1; save(); say(L('スタンプゲット！', 'Stamp collected! ') + `(${Object.keys(st.stamps).length}/${D.rally.spots.length})`); document.getElementById('go').classList.remove('hidden') }
+    const head = `<div class="card"><span class="tag">${L('スポット', 'Spot')} ${i + 1}${L('：', ': ')}${esc(s.name)}</span>${host(st.stamps[i] ? L('ここのスタンプはもう持ってるよ！', 'You already have this stamp!') : (s.say || L('ここのおだいに挑戦してね！', 'Try this spot\'s challenge!')))}`
+    const tail = `<div class="row ${st.stamps[i] ? '' : 'hidden'}" id="go"><a class="btn" href="${location.pathname}">${L('スタンプ帳を見る', 'See your stamp book')}</a></div></div>${foot()}`
+    if (t.type === 'riddle' && D.riddle?.[t.i]) {
+      app.innerHTML = head + `<div id="r${t.i}">${riddleBody(D.riddle[t.i], t.i)}</div>` + tail
+      if (st.riddle[t.i] && !st.stamps[i]) stamp()
+      wireRiddle(D.riddle[t.i], t.i, () => stamp())
+    } else if (D.quiz?.[t.i ?? 0]) {
+      const q = D.quiz[t.i ?? 0]
+      app.innerHTML = head + `<div class="q">${esc(q.q)}</div><div class="choices">${choiceBtns(q, t.i ?? 0)}</div><div id="ex" class="explain hidden">${esc(q.explain || '')}</div>` + tail
+      app.querySelectorAll('.choice').forEach((b) => b.onclick = async () => {
+        if ((await hash(b.dataset.j)) === q.a) { b.classList.add('ok'); document.getElementById('ex').classList.remove('hidden'); app.querySelectorAll('.choice').forEach((x) => x.disabled = true); stamp() }
+        else { b.classList.add('ng'); b.disabled = true; say(L('ちがうみたい。もう一回えらんでね！', 'Not that one. Pick again!')) }
+      })
+    }
+  }
+  function showQr() {
+    top()
+    const base = location.origin + location.pathname
+    app.innerHTML = `<div class="noprint">${backBtn()}</div><div class="card"><span class="tag">${L('スタンプラリー QRシート', 'Stamp rally QR sheet')}</span><h1>${esc(D.title || '')}</h1><div class="sub">${L('印刷して、各スポットに貼ってください。', 'Print this and put each code at its spot.')}</div>
+      <div class="qr">${D.rally.spots.map((s, i) => { const u = `${base}?spot=${i + 1}`; return `<div class="spot"><b>${i + 1}. ${esc(s.name)}</b><a href="${esc(u)}"><img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(u)}" alt="QR"></a><small>${esc(s.hint || '')}</small></div>` }).join('')}</div>
+      <div class="row noprint"><button class="btn quiet" onclick="print()">${L('印刷する', 'Print')}</button></div></div>`
+    wireBack()
+  }
+})()
+</script>
+</body>
+</html>
