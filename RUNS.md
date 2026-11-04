@@ -36,7 +36,7 @@ Versions: **A** first version · **B** drawing starts alongside the design, long
 | 28 | D | direct | tanuki with a paper fan | 47.0 | 28.2 | 10/10 |  | [a5659122](https://hackar-s.com/slam-ar/a5659122-db54-429d-8a6f-ec2a3ae84251) |
 | 29 | C, D | Muse | cloud cafe, umbrella | 63, 44 | 26 | 6, then 10/10 | No dropped call. The first drawing failed the check, so Muse held the publish and asked; we chose "Make a new one". Then a rally in 18 s (DRIZZLEL-2673). Compose, publish, certificate and rally each ran in a different region. | [83aca0ea](https://hackar-s.com/slam-ar/83aca0ea-a373-4667-87d6-7e295ef469c6) |
 | 30 | D | Muse | fox with a big fan (Japanese) | 63 | 30 | 10/10 | No dropped call. Compose and publish ran in different regions. | [4920b0e1](https://hackar-s.com/slam-ar/4920b0e1-4469-4c69-822c-5048cee11ff8) |
-| 31 | D | Muse | goldfish festival mascot in a happi coat | 46 | 30 | 10/10 | One unbroken session shown in the video: theme, publish, rally (MATSURIF-4471), join, stamp. No dropped call, no retry. | [842db15b](https://hackar-s.com/slam-ar/842db15b-a716-4e56-b5b9-5325d2aec848) |
+| 31 | D | Muse | goldfish festival mascot in a happi coat | 46 | 30 | 10/10 | One unbroken session: theme, publish, rally (MATSURIF-4471), join, stamp. No dropped call, no retry. | [842db15b](https://hackar-s.com/slam-ar/842db15b-a716-4e56-b5b9-5325d2aec848) |
 | 32 | D | direct | goldfish with a paper fan | 46.1 | 32.0 | 10/10 | Gaps inside the outline now stay see-through | [91a4dd48](https://hackar-s.com/slam-ar/91a4dd48-b58b-498b-a233-d1ab247789a8) |
 | 33 | D | direct | green frog in a yellow raincoat | 50.0 | 29.5 | 10/10 |  | [6c9fad8a](https://hackar-s.com/slam-ar/6c9fad8a-1fd4-4e03-8c7c-e2aa39498ed5) |
 | 34 | D | direct | shrine maiden girl with a broom | 75.7 | 30.9 | 10/10 |  | [6562673d](https://hackar-s.com/slam-ar/6562673d-1e55-446c-a0fa-f0d055b5507e) |
@@ -46,6 +46,7 @@ Versions: **A** first version · **B** drawing starts alongside the design, long
 | 38 | E | direct | same theme as 37 | 102.9 | 33.5 | 7→9 | The model shrank to fit | [f4b811c6](https://hackar-s.com/slam-ar/f4b811c6-064c-4a4c-80c9-034b47962d0b) |
 | 39 | E | Muse | same theme as 37 | 60.7 | 32 | 9/10 | The model shrank from 1600 to 1427 pixels wide and was stored. No dropped call. | [2967001c](https://hackar-s.com/slam-ar/2967001c-bafd-4058-adce-fd945b7b95fa) |
 | 40 | E | Muse | keyboard mash (asdfghjkl) | 88.6 | 32 | 2→4 | Failed the check twice. Muse stopped and asked; we said "Publish it anyway", and it passed `confirmed: true`. | [e5413c8f](https://hackar-s.com/slam-ar/e5413c8f-74c6-4536-948f-89e95d0d5337) |
+| 41 | F | Muse | goldfish festival mascot in a happi coat | 49, 59 | 27 | 10/10 | One unbroken session on the final code, shown in the video: theme, publish, rally (MATSURIP-5006), join, stamp. Muse called `compose_ar` a second time 13 seconds after the first finished, for a reason we do not know, so a second drawing was made and published. No dropped call. | [17cfa3cb](https://hackar-s.com/slam-ar/17cfa3cb-2757-426f-928f-9d63ec3b9d6a) |
 
 ## Stopped before publishing
 
@@ -63,4 +64,4 @@ These ran after the runs above and did not try to publish, or were stopped on pu
 
 ## Looked at by eye
 
-The self-check grades a 2D cut-out. So we also opened the models of runs 26–40 (13 of them, all but runs 29 and 37) in the AR emulator and turned them from the front to the back. The fronts all held up. From behind, 10 read as a back. Run 31's back edit got an HTTP 500, so its back is a dark plate; the edit is now tried twice, and a plate with no back drawing takes the body's color. In runs 27 and 34 the back drawing did not line up with the front outline, and parts of the front drawing showed through; those parts now take the body's color too, but a back drawing that does not line up still looks doubled.
+The self-check grades a 2D cut-out. So we also opened the models of runs 26–41 (14 of them, all but runs 29 and 37) in the AR emulator and turned them from the front to the back. The fronts all held up. From behind, 11 read as a back. Run 31's back edit got an HTTP 500, so its back is a dark plate; the edit is now tried twice, and a plate with no back drawing takes the body's color. In runs 27 and 34 the back drawing did not line up with the front outline, and parts of the front drawing showed through; those parts now take the body's color too, but a back drawing that does not line up still looks doubled.
