@@ -46,7 +46,7 @@ Versions: **A** first version · **B** drawing starts alongside the design, long
 | 38 | E | direct | same theme as 37 | 102.9 | 33.5 | 7→9 | The model shrank to fit | [f4b811c6](https://hackar-s.com/slam-ar/f4b811c6-064c-4a4c-80c9-034b47962d0b) |
 | 39 | E | Muse | same theme as 37 | 60.7 | 32 | 9/10 | The model shrank from 1600 to 1427 pixels wide and was stored. No dropped call. | [2967001c](https://hackar-s.com/slam-ar/2967001c-bafd-4058-adce-fd945b7b95fa) |
 | 40 | E | Muse | keyboard mash (asdfghjkl) | 88.6 | 32 | 2→4 | Failed the check twice. Muse stopped and asked; we said "Publish it anyway", and it passed `confirmed: true`. | [e5413c8f](https://hackar-s.com/slam-ar/e5413c8f-74c6-4536-948f-89e95d0d5337) |
-| 41 | F | Muse | goldfish festival mascot in a happi coat | 49, 59 | 27 | 10/10 | One unbroken session on the final code, shown in the video: theme, publish, rally (MATSURIP-5006), join, stamp. Muse called `compose_ar` a second time 13 seconds after the first finished, for a reason we do not know, so a second drawing was made and published. No dropped call. | [17cfa3cb](https://hackar-s.com/slam-ar/17cfa3cb-2757-426f-928f-9d63ec3b9d6a) |
+| 41 | F | Muse | goldfish festival mascot in a happi coat | 49, 59 | 27 | 10/10 | One unbroken session on the final code, shown in the video: theme, publish, rally (MATSURIP-5006), join, stamp, 456 s from "Moshi Moshi" to the first stamp. Muse called `compose_ar` a second time 13 seconds after the first finished, for a reason we do not know, so a second drawing was made and published. No dropped call. | [17cfa3cb](https://hackar-s.com/slam-ar/17cfa3cb-2757-426f-928f-9d63ec3b9d6a) |
 
 ## Stopped before publishing
 

@@ -644,7 +644,7 @@ function normalizeComp(c, theme) {
     persona: String(c?.persona || '').slice(0, 200) || fb.persona,
     action: String(c?.action || '').slice(0, 120),
     // Only an explicit answer counts as "no third-party IP": a missing field means nobody checked.
-    ip: typeof c?.ip !== 'string' ? '?' : /^(none|null|n\/?a|no|なし|無し|ない)?$/i.test(c.ip.trim()) ? '' : c.ip.trim().slice(0, 60),
+    ip: typeof c?.ip !== 'string' || /^(null|undefined|n\/?a|unknown|不明)$/i.test(c.ip.trim()) ? '?' : /^(none|no|なし|無し|ない)?$/i.test(c.ip.trim()) ? '' : c.ip.trim().slice(0, 60),
   };
 }
 
