@@ -1567,7 +1567,7 @@ function buildServer() {
       };
     }
     u.agreed = true;
-    if (theme) u.theme = String(theme).slice(0, 60);
+    if (theme) u.theme = String(theme).slice(0, 160);
     if (!u.theme) {
       return {
         content: [{ type: 'text', text: langOf(theme || u.theme) === 'en' ? 'Thanks! What should we make? Give me a theme in a few words — for example "a bonfire spirit", "a moonlit tanuki" or your own brand character.' : 'ありがとう！じゃあ、どんなARにする？テーマを一言で教えて。迷ったらこの中から選んでもOK：「焚き火の精霊」「月夜のたぬき」「推しの誕生日ケーキ」。もちろん別のテーマでも大丈夫だよ。' }],
@@ -1597,7 +1597,7 @@ function buildServer() {
     if (!u.agreed) {
       return { content: [{ type: 'text', text: 'まだ参加の確認ができてないみたい。先に start_create で「いいよ」をもらってね。' }], structuredContent: { needsAgreement: true, card: packCard(u) } };
     }
-    if (theme) u.theme = String(theme).slice(0, 60);
+    if (theme) u.theme = String(theme).slice(0, 160);
     if (!u.theme) {
       return { content: [{ type: 'text', text: 'テーマがまだ決まってないみたい。先に start_create でテーマを聞いてね。' }], structuredContent: { needsTheme: true, card: packCard(u) } };
     }
