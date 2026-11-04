@@ -66,6 +66,10 @@ Environment variables (Vercel project settings):
 - `PUBLIC_BASE_URL` — public origin of this deployment, e.g. `https://hackathon-ar-creator.vercel.app`.
 - `HACKARS_API_KEY` — API key for the HACKAR:S project-create / asset-store endpoints.
 
+## What this repository does and does not contain
+
+`api/` is the code that runs in production. `player/` is the part added to the HACKAR:S player, and it does not run on its own: the player core and the HACKAR:S API routes are closed source. `pipeline/` is the earlier Blender reference (kept for the record; it expects a local Blender and is not used in production), and `tools/test_sam.mjs` needs a fixture that is not in this repository. Scripted screens in `glasses-app/` are not connected to anything.
+
 ## Develop
 
 ```bash

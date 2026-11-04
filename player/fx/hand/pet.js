@@ -1,7 +1,7 @@
 // Pet: raise the character like a virtual pet. Hunger and mood fall with time (also while the page is
 // closed: saved per work on this device), care raises them and earns friendship XP; levels make it
-// grow. The UI lives in space next to the character, not on the screen (AR-glasses ready): a status
-// panel over its head and four floating buttons - food / play / talk / pet. Press a button by tapping
+// grow. The status panel (name, level, hunger, mood) is pinned to the top-left of the screen so the
+// talk bubble never covers it; four floating buttons - food / play / talk / pet - stay next to the character. Press a button by tapping
 // it on screen, or with your hand: point with the index finger and touch it with the fingertip.
 
 import { C as CZ, font as czFont, loadFont, roundRect as czRound, card as czCard, tag as czTag, leaf as czLeaf, gauge as czGauge } from './cozy.js?v=20261104k'
@@ -190,8 +190,20 @@ export function createPet(api) {
     el.style.width = w + 'px'; el.style.height = (w * aspect) + 'px'
     el.style.transform = `translate(${r.left + (p.x + 1) / 2 * r.width}px, ${r.top + (1 - p.y) / 2 * r.height}px) translate(-50%,-50%)`
   }
+  // the status panel stays put at the top-left of the AR view (inside the safe area); talk.js / game.js
+  // read window.__hpHudBottom to keep their bubbles and cards below it
+  function pinPanel() {
+    if (!panel.visible) { pc.style.display = 'none'; window.__hpHudBottom = 0; return }
+    const r = canvas.getBoundingClientRect(), vw = Math.min(r.right, innerWidth) - Math.max(r.left, 0)
+    const w = Math.round(Math.max(180, Math.min(innerWidth > innerHeight ? 250 : 290, vw * 0.56)))
+    const x = Math.max(r.left, 0) + 10, y = Math.max(r.top, 0) + 10
+    pc.style.display = 'block'
+    pc.style.width = w + 'px'; pc.style.height = (w * 236 / 512) + 'px'
+    pc.style.transform = `translate(calc(${x}px + env(safe-area-inset-left)), calc(${y}px + env(safe-area-inset-top)))`
+    window.__hpHudBottom = pc.getBoundingClientRect().bottom + 6
+  }
   function syncDom() {
-    placeEl(pc, panel, panel.scale.x, 236 / 512)
+    pinPanel()
     for (const b of buttons) placeEl(b.c, b.sp, b.sp.scale.x, 1)
     for (const p of poops) placeEl(p.c, p.sp, p.sp.scale.x, 1)
     placeEl(zEl, zAnchor, zAnchor.scale.x, 0.6)

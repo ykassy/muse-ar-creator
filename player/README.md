@@ -3,7 +3,7 @@
 The published works open in the **HACKAR:S WebAR player** at hackar-s.com. The player itself is HACK IT's
 pre-existing, closed-source product. Everything in this folder is the part we **added to it during the
 hackathon** (Oct 26 – Nov 4, 2026), copied here so judges can read it. It is served from hackar-s.com in
-production; these files are identical to what runs there.
+production; the six `fx/hand/` files were copied from there on Nov 5, 2026. `slam-app.additions.js` holds excerpts only, so this folder does not run on its own.
 
 | File | What it does |
 |---|---|

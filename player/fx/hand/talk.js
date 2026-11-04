@@ -4,7 +4,7 @@ import { C, FONT, loadFont } from './cozy.js?v=20261104k'
 // character turns to you and listens until you stop speaking, then answers with a speech bubble and
 // the device voice. The button shows every state: idle / listening (live mic level + time left) /
 // thinking / speaking. Audio is recorded as 16 kHz mono WAV (what Muse Voice Transcribe accepts) and
-// sent to the MOSHI MOSHI /api/talk endpoint (Transcribe + Muse Spark).
+// sent to the AR Creator /api/talk endpoint (Transcribe + Muse Spark).
 // iOS needs a user gesture before the mic / speech synthesis work: the first button press or tap unlocks.
 // same origin: the AR pages' CSP only allows connecting to hackar-s.com itself; vercel.json proxies /x/talk
 const ENDPOINT = '/x/talk'
@@ -125,7 +125,7 @@ export function createTalk({ THREE, getCamera, canvas, content, getRect, ov = {}
     if (bubble.style.opacity === '0') return
     const rc = getRect && getRect()
     if (!rc) return
-    const r = canvas.getBoundingClientRect(), vt = Math.max(r.top, 0), vb = Math.min(r.bottom, innerHeight)
+    const r = canvas.getBoundingClientRect(), vt = Math.max(r.top, 0, window.__hpHudBottom || 0), vb = Math.min(r.bottom, innerHeight)
     const half = bubble.offsetWidth / 2 + 8
     const x = Math.min(r.right - half, Math.max(r.left + half, r.left + (rc.x0 + rc.x1) / 2))
     const y = Math.min(vb - 8, Math.max(vt + bubble.offsetHeight + 8, r.top + rc.y0 + (rc.y1 - rc.y0) * 0.1))

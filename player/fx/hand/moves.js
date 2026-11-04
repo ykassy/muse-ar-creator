@@ -1,5 +1,5 @@
-// Moves: in-house floor-AR style choreography for the whole character (no GLB rebuild needed).
-// Each move is a list of keys like the in-house motion timelines: t (s), x / z (travel on the floor),
+// Moves: CPD floor-AR style choreography for the whole character (no GLB rebuild needed).
+// Each move is a list of keys like the CPD motion timelines: t (s), x / z (travel on the floor),
 // y (hop height), yaw, lean (forward tilt), flat (0 standing .. 1 lying face-up on the floor),
 // sx / sy (squash & stretch), ease (how this key is reached). Distances are in character heights.
 // update(dt) returns the pose to apply on top of the GLB's own bone clips.
@@ -28,7 +28,7 @@ function hop(t0, x0, z0, x1, z1, h, keys) {
 }
 
 const MOVES = {
-  // lying on the floor like the painting, then it peels itself up (the in-house opening)
+  // lying on the floor like the painting, then it peels itself up (CPD's opening)
   rise: () => [
     { t: 0, flat: 1, ease: 'linear' },
     { t: 0.45, flat: 1, sx: 1.05, sy: 0.95, ease: 'outBack' },
@@ -75,7 +75,7 @@ const MOVES = {
     { t: 1.55, sx: 0.95, sy: 1.08, ease: 'outQuad' },
     { t: 1.9, ease: 'outElastic' },
   ],
-  // dives flat into the floor, lies there a moment, peels back up (the in-house ending)
+  // dives flat into the floor, lies there a moment, peels back up (CPD's ending)
   flatPop: () => [
     { t: 0, ease: 'linear' },
     { t: 0.25, sx: 1.1, sy: 0.88, ease: 'sine' },

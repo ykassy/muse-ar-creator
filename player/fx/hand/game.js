@@ -567,8 +567,8 @@ export function createGame(api) {
       card.style.opacity = hidden ? '0' : '1'
       const half = card.offsetWidth / 2 + 8
       card.style.left = Math.min(r.right - half, Math.max(r.left + half, r.left + (rc.x0 + rc.x1) / 2)) + 'px'
-      // above the pet's floating status panel when there is one
-      card.style.top = Math.max(Math.max(r.top, 0) + card.offsetHeight + 60, r.top + rc.y0 - 6 - (pet ? (rc.x1 - rc.x0) * 0.32 : 0)) + 'px'
+      // below the pinned status panel (window.__hpHudBottom)
+      card.style.top = Math.max(Math.max(r.top, 0, window.__hpHudBottom || 0) + card.offsetHeight + 12, r.top + rc.y0 - 6) + 'px'
       const bar = card.querySelector('.bar i'); if (bar) bar.style.width = Math.max(0, 100 - wishT / GIVE_UP_S * 100) + '%'
     }
     if (ringG.visible) {
