@@ -607,10 +607,9 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
       const span = (a) => { const t = Math.max(...a) * 0.14; let i = 0, j = a.length - 1; while (i < j && a[i] < t) i++; while (j > i && a[j] < t) j--; return [i, j]; };
       return [...span(cols), ...span(rows)];
     };
-    const px = [[], [], []];
-    for (let i = 0; i < backW * backH; i += 7) if (backRgba[i * 4 + 3] > 200) for (let k = 0; k < 3; k++) px[k].push(backRgba[i * 4 + k]);
-    if (px[0].length > 64) {
-      const fill = px.map((c) => c.sort((p, q) => p - q)[c.length >> 1]);
+    let opaque = 0;
+    for (let i = 0; i < backW * backH; i += 7) if (backRgba[i * 4 + 3] > 200) opaque++;
+    if (opaque > 64) {
       const [fx0, fx1, fy0, fy1] = bodyBox(bw, bh, (x, y) => mask[(y0 + y) * w + x0 + x]);
       const [bx0, bx1, by0, by1] = bodyBox(backW, backH, (x, y) => backRgba[(y * backW + x) * 4 + 3] > 127);
       const bt = new Uint8Array(bw * bh * 4);
@@ -619,7 +618,7 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
         const sy = Math.round(by0 + ((y - fy0) / Math.max(1, fy1 - fy0)) * (by1 - by0));
         const inside = sx >= 0 && sy >= 0 && sx < backW && sy < backH;
         const si = inside ? (sy * backW + sx) * 4 : 0, a = inside ? backRgba[si + 3] / 255 : 0, di = (y * bw + x) * 4;
-        for (let k = 0; k < 3; k++) bt[di + k] = Math.round(backRgba[si + k] * a + fill[k] * (1 - a));
+        for (let k = 0; k < 3; k++) bt[di + k] = Math.round(backRgba[si + k] * a + tex[di + k] * (1 - a)); // where the back drawing stops short, the front art shows
         bt[di + 3] = 255;
       }
       backPng = encodePng(bw, bh, Buffer.from(bt));

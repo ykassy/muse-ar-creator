@@ -11,6 +11,12 @@ Say the passphrase "Moshi Moshi" in Muse to start, give a one-word theme, and th
 3. **Publishes into HACKAR:S** (our production WebAR platform) as a real project: the model, one of five real three.js **Ultra Elements** spells (lightning / fire / frozen lightning / starfall / light pillar), expression switching, and **Hand Play** — pinch the character with your fingers to pick it up and carry it, press the talk button and it listens and answers in character (voice transcription + Spark reply + speech, with an emotion that changes its face and moves), hold up a palm to cast its spell. Ask it to jump, spin or cast its spell and it does — Spark returns an action with its reply (speech is read out with the phone's built-in voice). It moves calmly on its own (looking around, the occasional hop), lives with you as a small pet (feed / play / talk / pet from the buttons at its feet; it grows, gets hungry, sleeps at night and now and then leaves a mess you clean with a fingertip),.
 4. **Certifies** the creation with a signed certificate page (one per creator) that links the published work and prints the Meta Model API usage.
 
+## Try it
+
+- **On a phone, no app:** open https://hackar-s.com/slam-ar/efd6db6a-a5c0-45ee-9503-7a27fe4ddb21 , aim at the floor, then pinch, talk and show your palm. Allow the camera and microphone.
+- **In Muse:** add `https://hackathon-ar-creator.vercel.app/mcp` as a custom connector, then say "Moshi Moshi".
+- **Stamp rally in Muse:** with the connector added, say "Join SUNNY-2039".
+
 ## In production
 
 - **Real output, real platform.** Every run creates a project in HACKAR:S (hackar-s.com), the WebAR platform we already run for brand and event AR. The only link the user gets is that hackar-s.com URL.
