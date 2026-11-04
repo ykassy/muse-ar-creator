@@ -639,6 +639,8 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
           queue.push(n);
         }
       }
+      // Anything still unreached is walled in by outlines, such as a hand that sticks out.
+      for (let i = 0; i < bw * bh; i++) if (!known[i]) for (let k = 0; k < 3; k++) bt[i * 4 + k] = tex[i * 4 + k];
       backPng = encodePng(bw, bh, Buffer.from(bt));
     }
   }
