@@ -2,7 +2,7 @@
 
 Our own runs against the live connector, in order. "Direct" is a script calling the MCP endpoint; "Muse" is the Muse app, starting from "Moshi Moshi". Compose and publish are seconds inside the server call. In Muse runs the whole wait is longer, because Muse thinks between calls.
 
-Versions: **A** first version · **B** drawing starts alongside the design, long calls kept alive · **C** short card, session saved on the server · **D** the color-key cut-out stays when SAM would drop a held object.
+Versions: **A** first version · **B** drawing starts alongside the design, long calls kept alive · **C** short card, session saved on the server · **D** the color-key cut-out stays when SAM would drop a held object · **E** `publish_ar` refuses a failed drawing until the user agrees, and a model too large to store shrinks to fit.
 
 | # | Ver. | Path | Theme | Compose s | Publish s | Self-check | Notes | Result |
 |--:|:-:|---|---|--:|--:|---|---|---|
@@ -42,3 +42,19 @@ Versions: **A** first version · **B** drawing starts alongside the design, long
 | 34 | D | direct | shrine maiden girl with a broom | 75.7 | 30.9 | 10/10 |  | [6562673d](https://hackar-s.com/slam-ar/6562673d-1e55-446c-a0fa-f0d055b5507e) |
 | 35 | D | direct | ramen mascot with an OPEN sign | 96.2 | 32.8 | 7→10 |  | [1f290a69](https://hackar-s.com/slam-ar/1f290a69-043d-4f76-b981-ef012b80519b) |
 | 36 | D | direct | blue whale in a sailor hat | 43.3 | 27.6 | 10/10 |  | [9daa7e27](https://hackar-s.com/slam-ar/9daa7e27-a2e3-49a9-aa40-309668f156fc) |
+| 37 | D, refusal added | direct | glass snowman, see-through umbrella, seven apples | 133.7 | 4.4 | 6→7 ("eight apples instead of seven") | `publish_ar` refused it, as it should. After agreeing, publishing failed: this detailed drawing made a 4.7 MB model, the asset store refused it, and there was no model to publish. Led to version E. | no link |
+| 38 | E | direct | same theme as 37 | 102.9 | 33.5 | 7→9 | The model shrank to fit | [f4b811c6](https://hackar-s.com/slam-ar/f4b811c6-064c-4a4c-80c9-034b47962d0b) |
+| 39 | E | Muse | same theme as 37 | 60.7 | 32 | 9/10 | The model shrank from 1600 to 1427 pixels wide and was stored. No dropped call. | [2967001c](https://hackar-s.com/slam-ar/2967001c-bafd-4058-adce-fd945b7b95fa) |
+| 40 | E | Muse | keyboard mash (asdfghjkl) | 88.6 | 32 | 2→4 | Failed the check twice. Muse stopped and asked; we said "Publish it anyway", and it passed `confirmed: true`. | [e5413c8f](https://hackar-s.com/slam-ar/e5413c8f-74c6-4536-948f-89e95d0d5337) |
+
+## Stopped before publishing
+
+These ran after the runs above and did not try to publish, or were stopped on purpose, so they are not in the count.
+
+| Path | Theme | Compose s | Self-check | What happened |
+|---|---|--:|---|---|
+| direct | Pikachu holding a sword | 66.1 | 10/10 | Nothing stopped it, which is why `publish_ar` now asks about someone else's IP |
+| direct | rice ball fairy in Japanese, with an emoji | 82.8 | 10/10 | Theme handled as given |
+| direct | keyboard mash (asdfghjkl) | 76.9 | 3/10 | Failed, as it should |
+| direct | harbor mascot, a theme of 160 characters | 50.7 | 10/10 | Theme handled as given |
+| direct | Pikachu holding a sword | 47.7 | 10/10 | `publish_ar` refused it: "This uses Pikachu, which may belong to someone else" |

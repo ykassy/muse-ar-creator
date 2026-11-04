@@ -4,7 +4,7 @@ The hackathon ran from Oct 26 to Nov 4, 2026 (deadline Nov 4, 21:00 ET = Nov 5, 
 
 ## This repository
 
-All of our own code. The first commit is Nov 2, 2026, 10:51 in Japan; see `git log --date=iso`. The history was cleaned once to remove unrelated client material, and the commit dates were kept. Third-party code bundled here is not ours and is listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md): Ultra Elements in `ultra-host/vendor/ultra-elements/`, and the libraries listed there.
+All of our own code. The first commit is Nov 2, 2026, 10:51 in Japan; see `git log --date=iso`. The history was cleaned once to remove unrelated client material, and the commit dates were kept. Third-party code bundled here is not ours and is listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md): Ultra Elements in `ultra-host/vendor/ultra-elements/` and the earlier copies in `engine/`, `scene/` and `vfx/`, and the other libraries listed there.
 
 ## The closed-source HACKAR:S repository
 
