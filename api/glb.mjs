@@ -641,7 +641,14 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
       }
       // Anything still unreached is walled in by outlines, such as a hand that sticks out.
       for (let i = 0; i < bw * bh; i++) if (!known[i]) for (let k = 0; k < 3; k++) bt[i * 4 + k] = tex[i * 4 + k];
-      backPng = encodePng(bw, bh, Buffer.from(bt));
+      // The back is seen in passing, so half size is enough. It also keeps the GLB
+      // under the asset store's body limit: a stored GLB of 3.47 MB was refused.
+      const hw = bw >> 1, hh = bh >> 1, small = new Uint8Array(hw * hh * 4);
+      for (let y = 0; y < hh; y++) for (let x = 0; x < hw; x++) for (let k = 0; k < 4; k++) {
+        const p = (y * 2 * bw + x * 2) * 4 + k;
+        small[(y * hw + x) * 4 + k] = (bt[p] + bt[p + 4] + bt[p + bw * 4] + bt[p + bw * 4 + 4] + 2) >> 2;
+      }
+      backPng = encodePng(hw, hh, Buffer.from(small));
     }
   }
   // contours from the eroded mask (cropped space), simplified + Chaikin x2
