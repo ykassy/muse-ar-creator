@@ -1965,7 +1965,7 @@ async function handle(request) {
 // Composition takes about a minute and Muse dropped the call at around 50 seconds.
 // For the slow tools, answer as an event stream and send a comment every few
 // seconds, so the connection is never idle while the work runs.
-const KEEP_ALIVE = false; // off until it has been tried with the real Muse client
+const KEEP_ALIVE = true;
 async function isSlowCall(request) {
   if (!KEEP_ALIVE || request.method !== 'POST' || !(request.headers.get('accept') || '').includes('text/event-stream')) return false;
   try {
