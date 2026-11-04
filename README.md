@@ -20,12 +20,13 @@ Say the passphrase "Moshi Moshi" in Muse to start, give a one-word theme, and th
 ## In production
 
 - **Real output, real platform.** Every run creates a project in HACKAR:S (hackar-s.com), the WebAR platform we already run for brand and event AR. The only link the user gets is that hackar-s.com URL.
-- **Time.** Theme to a live link takes about 1.5 minutes (composition ~45 s, ~75 s when the self-check asks for a redraw; publishing ~30 s).
-- **Measured on Nov 5, 2026.** Ten fresh runs against the live connector all published: seven called directly (75–121 s from theme to link, mean 97 s) and three through the Muse app, starting from "Moshi Moshi". One of the three lost the umbrella the theme asked for, which led to the prompt fix in this repository. In all three Muse reported that its connection to `compose_ar` dropped and recovered without generating twice.
-- **Self-check proof.** When Muse Spark rejects a drawing, the rejected drawing, the redraw, both scores and the fix it wrote go on the creation certificate. Example: 4/10 "no open yellow umbrella", redrawn to 10/10.
+- **Time.** Theme to a live link takes about 1.7 minutes (composition 47–93 s, longest when the self-check asks for a redraw; publishing about 28 s).
+- **Measured on Nov 5, 2026.** Twelve fresh runs against the live connector all published: nine called directly (75–121 s from theme to link, mean 102 s) and three through the Muse app, starting from "Moshi Moshi". Two of them showed problems that are now fixed: one lost the umbrella its theme asked for (prompt fix), and one GLB was too large to store, so publishing rebuilt it without its back view (back plate now half size).
+- **Known limit.** Muse stops waiting for a tool after roughly 50 seconds, so in all three Muse runs its call to `compose_ar` dropped while the server was still working. Muse recovered each time; in one run it composed a second time.
+- **Self-check proof.** When Muse Spark rejects a drawing and the redraw scores higher, the first drawing, the redraw, both scores and the fix it wrote go on the creation certificate. Example: 4/10 "no open yellow umbrella", redrawn to 10/10 ([first drawing](https://pgyuabajrswdkzuksqfu.supabase.co/storage/v1/object/public/deployments/ar-creator/cb151e3e-2cfd-41dd-a5d1-f7bf7500feb7.png), [redraw](https://pgyuabajrswdkzuksqfu.supabase.co/storage/v1/object/public/deployments/ar-creator/988cefd4-32cc-4b77-a80d-ce0f34202e6e.png)).
 - **Cost per character.** About six Muse Image calls (artwork, four expressions, at most one redraw) at $0.01 each plus a few thousand Muse Spark tokens — roughly $0.07.
 - **Honest failure.** If publishing fails, the user is told so; no other URL is substituted.
-- **Guard rails.** Per-IP and global rate limits on the paid tools and on talk, plus pause switches (`AR_PAUSED`, `TALK_PAUSED`).
+- **Guard rails.** Rate limits on the paid tools and on talk, per IP and overall, kept in memory per server instance, plus pause switches (`AR_PAUSED`, `TALK_PAUSED`).
 
 If the model API is unavailable, composition falls back to a deterministic template so a creation always stands up (publishing still requires the real pipeline and fails honestly rather than substituting another URL).
 
@@ -79,7 +80,7 @@ npm install
 npx vercel dev   # or deploy with: npx vercel --prod
 ```
 
-Connect the deployed `/mcp` endpoint as a custom connector in the Muse app, then say "I want to make an AR".
+Connect the deployed `/mcp` endpoint as a custom connector in the Muse app, then say "Moshi Moshi".
 
 ## License
 
