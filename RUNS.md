@@ -38,3 +38,7 @@ Versions: **A** first version · **B** drawing starts alongside the design, long
 | 30 | D | Muse | fox with a big fan (Japanese) | 63 | 30 | 10/10 | No dropped call. Compose and publish ran in different regions. | [4920b0e1](https://hackar-s.com/slam-ar/4920b0e1-4469-4c69-822c-5048cee11ff8) |
 | 31 | D | Muse | goldfish festival mascot in a happi coat | 46 | 30 | 10/10 | One unbroken session shown in the video: theme, publish, rally (MATSURIF-4471), join, stamp. No dropped call, no retry. | [842db15b](https://hackar-s.com/slam-ar/842db15b-a716-4e56-b5b9-5325d2aec848) |
 | 32 | D | direct | goldfish with a paper fan | 46.1 | 32.0 | 10/10 | Gaps inside the outline now stay see-through | [91a4dd48](https://hackar-s.com/slam-ar/91a4dd48-b58b-498b-a233-d1ab247789a8) |
+| 33 | D | direct | green frog in a yellow raincoat | 50.0 | 29.5 | 10/10 |  | [6c9fad8a](https://hackar-s.com/slam-ar/6c9fad8a-1fd4-4e03-8c7c-e2aa39498ed5) |
+| 34 | D | direct | shrine maiden girl with a broom | 75.7 | 30.9 | 10/10 |  | [6562673d](https://hackar-s.com/slam-ar/6562673d-1e55-446c-a0fa-f0d055b5507e) |
+| 35 | D | direct | ramen mascot with an OPEN sign | 96.2 | 32.8 | 7→10 |  | [1f290a69](https://hackar-s.com/slam-ar/1f290a69-043d-4f76-b981-ef012b80519b) |
+| 36 | D | direct | blue whale in a sailor hat | 43.3 | 27.6 | 10/10 |  | [9daa7e27](https://hackar-s.com/slam-ar/9daa7e27-a2e3-49a9-aa40-309668f156fc) |
