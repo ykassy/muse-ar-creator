@@ -117,6 +117,11 @@ assert.equal(rights.rights, 'Pikachu');
 assert.equal(rights.selfCheck, undefined);
 assert.equal(projects, 2);
 
+// So does a drawing nobody could check for that.
+failing({ h: { s: null, i: [], r: '?' } });
+assert.equal((await call(B, 'publish_ar', { nickname: 'test', card: first.card })).rights, 'unknown');
+assert.equal(projects, 2);
+
 // Two publishes at once make one project, even when the loser hears "taken" after the winner is done.
 failing({ h: null });
 slowRefusal = 60;

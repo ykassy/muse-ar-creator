@@ -550,22 +550,36 @@ function quatMul(q1, q2) { // q1 * q2
 
 const DBG = typeof process !== 'undefined' && process.env && process.env.GLB_DEBUG;
 // The asset store takes about 4.5 MB of base64, so a GLB has to stay near 3.2 MB. A detailed drawing
-// can go over, and a model that cannot be stored cannot be published, so the textures shrink to fit.
+// can go over, and a model that cannot be stored cannot be published. Only the textures shrink: the
+// outline is always cut at full size, so a thin part such as a held umbrella keeps its shape.
 export const MAX_GLB_BYTES = 3_200_000;
-export function buildFittingGlb({ front, back = null, encodePng, scale, name = 'character', limit = MAX_GLB_BYTES }) {
-  let built;
-  for (let tries = 0; tries < 4; tries++) {
-    built = buildGlb({ rgba: front.rgba, w: front.w, h: front.h, encodePng, name, ...(back ? { backRgba: back.rgba, backW: back.w, backH: back.h } : {}) });
-    built.width = front.w;
+export function buildFittingGlb({ front, back = null, encodePng, name = 'character', limit = MAX_GLB_BYTES }) {
+  let built, texScale = 1;
+  for (let tries = 0; tries < 5; tries++) {
+    built = buildGlb({ rgba: front.rgba, w: front.w, h: front.h, encodePng, name, texScale, ...(back ? { backRgba: back.rgba, backW: back.w, backH: back.h } : {}) });
+    built.texScale = texScale;
     if (built.glb.length <= limit) break;
-    const k = Math.sqrt(limit / built.glb.length) * 0.95;
-    front = scale(front, Math.round(front.w * k), Math.round(front.h * k));
-    if (back) back = scale(back, Math.round(back.w * k), Math.round(back.h * k));
+    texScale *= Math.sqrt(limit / built.glb.length) * 0.95;
   }
   return built;
 }
+function resample(src, sw, sh, k) {
+  const tw = Math.max(1, Math.round(sw * k)), th = Math.max(1, Math.round(sh * k)), out = new Uint8Array(tw * th * 4);
+  for (let y = 0; y < th; y++) {
+    const gy = Math.max(0, (y + 0.5) * sh / th - 0.5), y0 = Math.floor(gy), y1 = Math.min(sh - 1, y0 + 1), fy = gy - y0;
+    for (let x = 0; x < tw; x++) {
+      const gx = Math.max(0, (x + 0.5) * sw / tw - 0.5), x0 = Math.floor(gx), x1 = Math.min(sw - 1, x0 + 1), fx = gx - x0;
+      for (let c = 0; c < 4; c++) {
+        const top = src[(y0 * sw + x0) * 4 + c] * (1 - fx) + src[(y0 * sw + x1) * 4 + c] * fx;
+        const bot = src[(y1 * sw + x0) * 4 + c] * (1 - fx) + src[(y1 * sw + x1) * 4 + c] * fx;
+        out[(y * tw + x) * 4 + c] = Math.round(top * (1 - fy) + bot * fy);
+      }
+    }
+  }
+  return { w: tw, h: th, px: out };
+}
 
-export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba = null, backW = 0, backH = 0 }) {
+export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba = null, backW = 0, backH = 0, texScale = 1 }) {
   const _t0 = Date.now(); const _lap = (s) => { if (DBG) console.log('[glb]', s, Date.now() - _t0, 'ms'); };
   if (!rgba || rgba.length < w * h * 4) throw new Error('rgba size mismatch');
   // mask from alpha, largest-component cleanup is skipped (server art is clean)
@@ -612,7 +626,8 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
     tex[di + 3] = 255;
   }
   _lap('mask+erode+flood');
-  const texPng = encodePng(bw, bh, Buffer.from(tex));
+  const packTexture = (px, pw, ph) => { if (texScale >= 1) return encodePng(pw, ph, Buffer.from(px)); const r = resample(px, pw, ph, texScale); return encodePng(r.w, r.h, Buffer.from(r.px)); };
+  const texPng = packTexture(tex, bw, bh);
   // the body's colour: the median of the drawing, leaving out the dark outlines
   const px = [[], [], []];
   for (let y = 0; y < bh; y += 3) for (let x = 0; x < bw; x += 3) {
@@ -673,7 +688,7 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
         const p = (y * 2 * bw + x * 2) * 4 + k;
         small[(y * hw + x) * 4 + k] = (bt[p] + bt[p + 4] + bt[p + bw * 4] + bt[p + bw * 4 + 4] + 2) >> 2;
       }
-      backPng = encodePng(hw, hh, Buffer.from(small));
+      backPng = packTexture(small, hw, hh);
     }
   }
   // No back drawing: the body's own colour reads as a back. The outline colour looked like a hole.

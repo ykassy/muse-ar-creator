@@ -44,16 +44,18 @@ if (!gltf.materials.some((m) => m.name === 'BackArt')) throw new Error('the plat
 // A drawing too detailed for the asset store still has to end up small enough to store.
 const noisy = { w: 900, h: 900, rgba: new Uint8Array(900 * 900 * 4) };
 for (let i = 0; i < noisy.rgba.length; i += 4) { noisy.rgba[i] = Math.random() * 256; noisy.rgba[i + 1] = Math.random() * 256; noisy.rgba[i + 2] = Math.random() * 256; noisy.rgba[i + 3] = 255; }
-const nearest = (img, tw, th) => {
-  const out = new Uint8Array(tw * th * 4);
-  for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) {
-    const s = (Math.floor(y * img.h / th) * img.w + Math.floor(x * img.w / tw)) * 4;
-    out.set(img.rgba.subarray(s, s + 4), (y * tw + x) * 4);
-  }
-  return { w: tw, h: th, rgba: out };
-};
 const limit = 1_000_000;
-const fitted = buildFittingGlb({ front: noisy, back: noisy, encodePng, scale: nearest, limit });
-console.log('fitted', fitted.glb.length, 'bytes at width', fitted.width);
+const fitted = buildFittingGlb({ front: noisy, back: noisy, encodePng, limit });
+console.log('fitted', fitted.glb.length, 'bytes at texture scale', fitted.texScale.toFixed(2));
 if (fitted.glb.length > limit) throw new Error('the model is still too large');
-if (fitted.width >= noisy.w) throw new Error('the model was not made smaller');
+if (fitted.texScale >= 1) throw new Error('the textures were not made smaller');
+
+// Shrinking must not change the outline: a thin line still holds the top part on.
+const held = { w: 800, h: 800, rgba: new Uint8Array(800 * 800 * 4) };
+const fill = (x0, x1, y0, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) held.rgba.set([Math.random() * 256, Math.random() * 256, Math.random() * 256, 255], (y * 800 + x) * 4); };
+fill(50, 750, 325, 750); fill(100, 700, 50, 200); fill(399, 404, 200, 325);
+const whole = buildGlb({ rgba: held.rgba, w: 800, h: 800, encodePng });
+const small = buildFittingGlb({ front: held, encodePng, limit: 400_000 });
+console.log('held part', whole.aspect.toFixed(3), small.aspect.toFixed(3), 'texture scale', small.texScale.toFixed(2));
+if (small.texScale >= 1) throw new Error('the textures were not made smaller');
+if (small.aspect !== whole.aspect) throw new Error('shrinking changed the outline');

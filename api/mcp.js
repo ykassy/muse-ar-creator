@@ -206,9 +206,9 @@ const heldReply = async (u) => {
   const why = (i || []).join(', ');
   const failed = s !== null && s !== undefined;
   const text = readTok(u.arTok)?.lg === 'en'
-    ? `Not published. ${r ? `This uses ${r}, which may belong to someone else. ` : ''}${failed ? `Muse Spark scored this drawing ${s}/10${why ? ` (${why})` : ''}. ` : ''}Tell the user, then ask: ${r ? 'do you own it or have permission to use it?' : 'publish it anyway, or make a new one?'} Call publish_ar with confirmed: true only if the user says to go ahead.`
-    : `まだ公開していません。${r ? `これは${r}を使っていて、他の人のものかもしれません。` : ''}${failed ? `Muse Spark の判定は ${s}/10${why ? `（${why}）` : ''} でした。` : ''}ユーザーに伝えて、${r ? '権利を持っているか、許可を得ているか' : '「このまま公開する／作り直す」'}を聞いてください。「公開する」と言われたときだけ confirmed: true で publish_ar を呼びます。`;
-  return { content: [{ type: 'text', text }], structuredContent: { needsConfirmation: true, ...(failed ? { selfCheck: { score: s, issues: i || [] } } : {}), ...(r ? { rights: r } : {}), card: await packCard(u) } };
+    ? `Not published. ${r === '?' ? 'Muse Spark could not say whether this uses someone else\'s IP. ' : r ? `This uses ${r}, which may belong to someone else. ` : ''}${failed ? `Muse Spark scored this drawing ${s}/10${why ? ` (${why})` : ''}. ` : ''}Tell the user, then ask: ${r ? 'do you own it or have permission to use it?' : 'publish it anyway, or make a new one?'} Call publish_ar with confirmed: true only if the user says to go ahead.`
+    : `まだ公開していません。${r === '?' ? 'Muse Spark は、他の人の IP を使っているかどうかを確かめられませんでした。' : r ? `これは${r}を使っていて、他の人のものかもしれません。` : ''}${failed ? `Muse Spark の判定は ${s}/10${why ? `（${why}）` : ''} でした。` : ''}ユーザーに伝えて、${r ? '権利を持っているか、許可を得ているか' : '「このまま公開する／作り直す」'}を聞いてください。「公開する」と言われたときだけ confirmed: true で publish_ar を呼びます。`;
+  return { content: [{ type: 'text', text }], structuredContent: { needsConfirmation: true, ...(failed ? { selfCheck: { score: s, issues: i || [] } } : {}), ...(r ? { rights: r === '?' ? 'unknown' : r } : {}), card: await packCard(u) } };
 };
 const retryReply = () => ({
   content: [{ type: 'text', text: 'The saved session could not be reached just now, so nothing was changed. Try the same call again in a moment with the same card. / 保存した状態にいま届きませんでした。何も変えていません。少し待って、同じ札でもう一度呼んでください。' }],
@@ -643,7 +643,8 @@ function normalizeComp(c, theme) {
     name: String(c?.name || '').slice(0, 20) || fb.name,
     persona: String(c?.persona || '').slice(0, 200) || fb.persona,
     action: String(c?.action || '').slice(0, 120),
-    ip: /^(none|null|n\/?a|no|なし|無し|ない)?$/i.test(String(c?.ip || '').trim()) ? '' : String(c.ip).trim().slice(0, 60),
+    // Only an explicit answer counts as "no third-party IP": a missing field means nobody checked.
+    ip: typeof c?.ip !== 'string' ? '?' : /^(none|null|n\/?a|no|なし|無し|ない)?$/i.test(c.ip.trim()) ? '' : c.ip.trim().slice(0, 60),
   };
 }
 
@@ -662,7 +663,7 @@ function fallbackComp(theme) {
   const p = PALETTES[ki >= 0 ? ki : h % PALETTES.length];
   return { title: `${theme} AR`, text: `Welcome to the world of ${theme}.`, color: p.color, effect: p.effect,
            name: String(theme || 'なかま').slice(0, 10), persona: `${theme}から生まれた小さななかま。好奇心いっぱいで、人と話すのが大好き。`,
-           action: 'hops happily in place with squash and stretch' };
+           action: 'hops happily in place with squash and stretch', ip: '?' };
 }
 
 // chat（prompt/completion_tokens）と image（input/output_tokens）で形が違う usage を共通形に寄せる
@@ -1821,11 +1822,11 @@ function buildServer() {
         try {
           const { w, h, rgba } = decodePng(keyedBuf);
           const back = await backJob;
-          const built = buildFittingGlb({ front: { rgba, w, h }, back, encodePng, scale: scaleRgba });
+          const built = buildFittingGlb({ front: { rgba, w, h }, back, encodePng });
           glbAspect = built.aspect;
           glbUrl = await storeAsset('glb', built.glb) || await storeAsset('glb', built.glb);
           if (!glbUrl) notes.push('3Dモデルの保存に失敗しました（公開時に再試行します）');
-          console.log('[AR] glb-built', JSON.stringify({ theme: th, bytes: built.glb.length, width: built.width, of: w, aspect: glbAspect, stored: !!glbUrl, back: !!back }));
+          console.log('[AR] glb-built', JSON.stringify({ theme: th, bytes: built.glb.length, texScale: Number(built.texScale.toFixed(2)), aspect: glbAspect, stored: !!glbUrl, back: !!back }));
         } catch (e) { console.log('[AR] glb-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('3Dモデルの生成に失敗しました'); }
         faces = await facesJob;
       }
@@ -1847,8 +1848,8 @@ function buildServer() {
         : 'Built from the template (no model used)';
       const held = check && !check.ok;
       const heldIssues = held ? (check.issues || []).slice(0, 3).join(', ') : '';
-      const textEn = `Done! "${comp.title}"\n${comp.text}\nName: ${comp.name} / Personality: ${comp.persona}\nSpell: ${spell.id} / Base color: ${comp.color}\n${glbUrl ? `A semi-3D model with thickness and a shadow (hops, talks, can be picked up${Object.keys(faces).length ? `, ${Object.keys(faces).length} expressions` : ''}).` : 'The 3D model is not ready yet (it will be rebuilt when publishing).'}\n${summaryEn}${notes.length ? `\nHeads-up: ${notes.length} step(s) fell back during the build, so this one may be simpler than usual.` : ''}\n\n${comp.ip ? `This uses ${comp.ip}, which may belong to someone else. Do not publish yet: ask the user whether they own it or have permission. publish_ar refuses it until they say so (confirmed: true).` : held ? `Muse Spark did not pass this drawing (${check.score}/10${heldIssues ? `: ${heldIssues}` : ''}). Do not publish yet: tell the user and ask whether to publish it anyway or make a new one. publish_ar refuses this drawing until the user agrees (confirmed: true).` : 'Publish it? (You get a hackar-s.com link.) Want a different spell? Just say so.'}`;
-      const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n${glbUrl ? `厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き${Object.keys(faces).length ? `、表情${Object.keys(faces).length}種` : ''}）で組み立てたよ。` : '3Dモデルはまだできていないよ（公開のときにもう一度組み立てるね）。'}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n${comp.ip ? `これは${comp.ip}を使っていて、他の人のものかもしれないよ。まだ公開しないで、本人が権利を持っているか、許可を得ているかを聞いてね。そう言われるまで publish_ar は公開を断るよ（confirmed: true）。` : held ? `Muse Spark の自己チェックは不合格のまま（${check.score}/10${heldIssues ? `：${heldIssues}` : ''}）。まだ公開しないで、このまま公開するか作り直すかをユーザーに聞いて。` : 'このまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。'}`;
+      const textEn = `Done! "${comp.title}"\n${comp.text}\nName: ${comp.name} / Personality: ${comp.persona}\nSpell: ${spell.id} / Base color: ${comp.color}\n${glbUrl ? `A semi-3D model with thickness and a shadow (hops, talks, can be picked up${Object.keys(faces).length ? `, ${Object.keys(faces).length} expressions` : ''}).` : 'The 3D model is not ready yet (it will be rebuilt when publishing).'}\n${summaryEn}${notes.length ? `\nHeads-up: ${notes.length} step(s) fell back during the build, so this one may be simpler than usual.` : ''}\n\n${comp.ip ? `${comp.ip === '?' ? 'Muse Spark could not say whether this uses someone else\'s IP.' : `This uses ${comp.ip}, which may belong to someone else.`} Do not publish yet: ask the user whether they own it or have permission. publish_ar refuses it until they say so (confirmed: true).` : held ? `Muse Spark did not pass this drawing (${check.score}/10${heldIssues ? `: ${heldIssues}` : ''}). Do not publish yet: tell the user and ask whether to publish it anyway or make a new one. publish_ar refuses this drawing until the user agrees (confirmed: true).` : 'Publish it? (You get a hackar-s.com link.) Want a different spell? Just say so.'}`;
+      const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n${glbUrl ? `厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き${Object.keys(faces).length ? `、表情${Object.keys(faces).length}種` : ''}）で組み立てたよ。` : '3Dモデルはまだできていないよ（公開のときにもう一度組み立てるね）。'}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n${comp.ip ? `${comp.ip === '?' ? 'Muse Spark は、他の人の IP を使っているかどうかを確かめられなかったよ。' : `これは${comp.ip}を使っていて、他の人のものかもしれないよ。`}まだ公開しないで、本人が権利を持っているか、許可を得ているかを聞いてね。そう言われるまで publish_ar は公開を断るよ（confirmed: true）。` : held ? `Muse Spark の自己チェックは不合格のまま（${check.score}/10${heldIssues ? `：${heldIssues}` : ''}）。まだ公開しないで、このまま公開するか作り直すかをユーザーに聞いて。` : 'このまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。'}`;
       console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
       return {
         content: [{ type: 'text', text: en ? textEn : text }],
@@ -1883,7 +1884,7 @@ function buildServer() {
           const img = p.im ? imgs.get(p.im) : null;
           if (img?.buf && img.type === 'image/png') {
             const { w, h, rgba } = decodePng(img.buf);
-            const built = buildFittingGlb({ front: { rgba, w, h }, encodePng, scale: scaleRgba });
+            const built = buildFittingGlb({ front: { rgba, w, h }, encodePng });
             aspect = built.aspect;
             glbUrl = await storeAsset('glb', built.glb);
           }

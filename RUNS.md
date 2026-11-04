@@ -2,7 +2,7 @@
 
 Our own runs against the live connector, in order. "Direct" is a script calling the MCP endpoint; "Muse" is the Muse app, starting from "Moshi Moshi". Compose and publish are seconds inside the server call. In Muse runs the whole wait is longer, because Muse thinks between calls.
 
-Versions: **A** first version · **B** drawing starts alongside the design, long calls kept alive · **C** short card, session saved on the server · **D** the color-key cut-out stays when SAM would drop a held object · **E** `publish_ar` refuses a failed drawing until the user agrees, and a model too large to store shrinks to fit.
+Versions: **A** first version · **B** drawing starts alongside the design, long calls kept alive · **C** short card, session saved on the server · **D** the color-key cut-out stays when SAM would drop a held object · **E** `publish_ar` refuses a failed drawing until the user agrees, and a model too large to store shrinks to fit · **F** the same for someone else's IP, only the textures shrink, and a failed back view is tried again.
 
 | # | Ver. | Path | Theme | Compose s | Publish s | Self-check | Notes | Result |
 |--:|:-:|---|---|--:|--:|---|---|---|
