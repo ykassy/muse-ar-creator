@@ -149,7 +149,7 @@ async function callImage(theme, comp, background, fix = '') {
   const key = keyFor(theme);
   const basePrompt = `A single charming mascot-like character illustration for an AR overlay, theme: "${theme}" (${comp.title}). Flat vector style, bold shapes, bold dark outline, no text, no letters, centered, full body, playful.${fix ? ` ${fix}` : ''}`;
   const prompt = background === 'transparent'
-    ? `${basePrompt} The character stands on a completely solid vivid ${key.name} (${key.hex}) chroma key background that fills the entire frame edge to edge. No shadow, no gradient, no floor, no ground line, no other objects, no floating decorations.`
+    ? `${basePrompt} The character stands on a completely solid vivid ${key.name} (${key.hex}) chroma key background that fills the entire frame edge to edge. Anything the theme names that the character holds or wears is drawn complete and inside the frame. No shadow, no gradient, no floor, no ground line, no scenery, no floating decorations.`
     : `${basePrompt} Clean solid background in the base color ${comp.color}.`;
   const mkBody = (png) => JSON.stringify({
     model: IMAGE_MODEL, prompt, size: '1024x1024',
