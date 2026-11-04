@@ -81,7 +81,7 @@ flowchart LR
 |---|---|
 | `start_create` | Consent check (nothing proceeds without an explicit yes), binds the session, collects the theme in the user's own words |
 | `compose_ar` | Muse Spark composition (incl. name/persona/spell) + Muse Image artwork + face variants, builds and stores the semi-3D GLB |
-| `publish_ar` | Creates the real HACKAR:S project (GLB + Ultra spell + Hand Play + expressions) and returns the hackar-s.com URL — the only deliverable URL |
+| `publish_ar` | Creates the real HACKAR:S project (GLB + Ultra spell + Hand Play + expressions) and returns the hackar-s.com URL — the only deliverable URL. Refuses a failed drawing or someone else's IP until `confirmed: true` |
 | `remix_ar` | Same character, different spell; then publish again |
 | `issue_certificate` | Issues the certificate page (one per creator) with model usage and the work's URL |
 | `make_play` | Muse Spark writes a quiz, riddles and a stamp rally hosted by the published character, from the session or from just its hackar-s.com link; stored at hackar-s.com/play/<id>, plus a short **join code** (e.g. `SUNNY-4821`) |
