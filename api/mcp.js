@@ -77,7 +77,8 @@ async function saveState(u) {
     const r = await saveVersion(u.ownerId, next, json);
     if (r === 'saved') { u.seq = next; u.savedJson = json; return true; }
     if (r === 'failed') { await pause(250 * (k + 1)); continue; }
-    const c = await newestState(u.ownerId, next);
+    let c;
+    try { c = await newestState(u.ownerId, next); } catch { await pause(250 * (k + 1)); continue; }
     if (!c || c.keep) { u.seq = next; continue; }
     if ((c.ct || 0) > (u.composedAt || 0)) { applyState(u, c); return true; }   // it holds a newer character: ours is out of date
     if (!u.holding) u.working = c.w || 0;
@@ -91,29 +92,47 @@ async function packCard(u) {
   const b = `${u.ownerId}.${u.seq}`;
   return `HC3.${b}.${sign(b)}`;
 }
-// One long job per session. The first instance to write the "working" version holds it.
+// One long job per session. The first instance to write the "working" version holds it. Losing the
+// race can bring in a newer state, so the caller checks again after a claim. With storage down
+// nobody can hold the job, so it does not start.
 async function claimWork(u) {
   for (let k = 0; k < 6; k++) {
     const next = (u.seq || 0) + 1;
     u.working = Date.now();
     const json = JSON.stringify(stateOf(u));
     const r = await saveVersion(u.ownerId, next, json);
-    if (r === 'saved') { u.seq = next; u.savedJson = json; u.holding = true; return true; }
+    if (r === 'saved') { u.seq = next; u.savedJson = json; u.holding = true; return 'claimed'; }
     if (r === 'failed') { await pause(250 * (k + 1)); continue; }
-    const c = await newestState(u.ownerId, next);
+    let c;
+    try { c = await newestState(u.ownerId, next); } catch { await pause(250 * (k + 1)); continue; }
     if (c && !c.keep) applyState(u, c); else { u.seq = next; u.working = 0; }
-    if (stillWorking(u)) return false;
+    if (stillWorking(u)) return 'busy';
   }
-  u.holding = true;   // storage is down: carry on without the claim
-  return true;
+  u.working = 0;
+  return 'down';
 }
 const releaseWork = (u) => { u.working = 0; u.holding = false; };
+// A version that does not exist is null. A read that fails throws, because "could not read" must
+// never pass for "nothing newer": that would bring back an older character.
+async function readVersion(url) {
+  for (let k = 0; ; k++) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (r.status === 400 || r.status === 404) return null;   // the bucket answers 400 for a missing object
+      if (r.ok) return await r.json();
+      throw new Error(`state read http ${r.status}`);
+    } catch (e) {
+      if (k >= 2) throw e;
+      await pause(300 * (k + 1));
+    }
+  }
+}
 async function newestState(o, from) {
   const mem = users.get(o);
   let q = Math.max(from, mem?.seq || 0);
-  let state = mem?.seq === q ? null : await fetchJson(stateUrl(o, q));
+  let state = mem?.seq === q ? null : await readVersion(stateUrl(o, q));
   for (;;) {   // looks a little past a gap, in case a version was never written
-    const ahead = await Promise.all([1, 2, 3].map((d) => fetchJson(stateUrl(o, q + d))));
+    const ahead = await Promise.all([1, 2, 3].map((d) => readVersion(stateUrl(o, q + d))));
     const k = ahead.findLastIndex(Boolean);
     if (k < 0) break;
     state = ahead[k]; q += k + 1;
@@ -136,7 +155,12 @@ const keyOf = (nickname) => (nickname || 'guest').trim().toLowerCase() || 'guest
 const mintOwnerId = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 const freshUser = (nickname) => ({ nickname: keyOf(nickname), ownerId: null, agreed: false, theme: null, arTok: null, arId: null, certTok: null, usage: null, hackarsUrl: null, hackarsProjectId: null });
 const getU = async (nickname, card) => {
-  const c = await readCard(card);
+  let c;
+  try { c = await readCard(card); }
+  catch (e) {
+    console.log('[AR] state-read-failed', JSON.stringify({ error: String(e?.message || e) }));
+    return { ...freshUser(nickname), badCard: true, readFailed: true };
+  }
   if (c?.o) {
     // A card identifies its owner's session, independent of the nickname.
     if (!users.has(c.o)) users.set(c.o, { ...freshUser(c.n || nickname), ownerId: c.o });
@@ -146,6 +170,7 @@ const getU = async (nickname, card) => {
     if (c.a) u.agreed = true;
     if (c.t && !u.theme) u.theme = c.t;
     if (c.ar && !u.arTok) { u.arTok = c.ar; const p = readTok(c.ar); if (p) u.arId = p.i; }
+    if (u.arTok === c.ar) u.held = c.h || null;
     if (c.c && !u.certTok) u.certTok = c.c;
     if (c.us && !u.usage) u.usage = c.us;
     // The link belongs to the character it was published for. An older card must
@@ -173,17 +198,23 @@ const busyReply = async (u, tool) => ({
   content: [{ type: 'text', text: `This character is still being made on the server. Wait about 30 seconds, then call ${tool} again with the same card. Do not start over. / まだサーバーで作っている途中だよ。30秒ほど待って、同じ card でもう一度 ${tool} を呼んでね。最初からやり直さないで。` }],
   structuredContent: { composing: true, card: await packCard(u) },
 });
-// A drawing Spark did not pass is not published until the user has heard why and agreed. The mark
-// lives in the saved state with that character, so a new drawing clears it and an old card cannot.
+// A drawing Spark did not pass, or one that uses someone else's IP, is not published until the user
+// has heard why and agreed. The mark lives in the saved state with that character, so a new drawing
+// clears it and an old card cannot.
 const heldReply = async (u) => {
-  const { s, i } = u.held;
+  const { s, i, r } = u.held;
   const why = (i || []).join(', ');
+  const failed = s !== null && s !== undefined;
   const text = readTok(u.arTok)?.lg === 'en'
-    ? `Not published. Muse Spark scored this drawing ${s}/10${why ? ` (${why})` : ''}. Tell the user, then ask: publish it anyway, or make a new one? Call publish_ar with confirmed: true only if the user says to publish it anyway.`
-    : `まだ公開していません。Muse Spark の判定は ${s}/10${why ? `（${why}）` : ''} でした。ユーザーに伝えて「このまま公開する／作り直す」を聞いてください。「このまま公開」と言われたときだけ confirmed: true で publish_ar を呼びます。`;
-  return { content: [{ type: 'text', text }], structuredContent: { needsConfirmation: true, selfCheck: { score: s, issues: i || [] }, card: await packCard(u) } };
+    ? `Not published. ${r ? `This uses ${r}, which may belong to someone else. ` : ''}${failed ? `Muse Spark scored this drawing ${s}/10${why ? ` (${why})` : ''}. ` : ''}Tell the user, then ask: ${r ? 'do you own it or have permission to use it?' : 'publish it anyway, or make a new one?'} Call publish_ar with confirmed: true only if the user says to go ahead.`
+    : `まだ公開していません。${r ? `これは${r}を使っていて、他の人のものかもしれません。` : ''}${failed ? `Muse Spark の判定は ${s}/10${why ? `（${why}）` : ''} でした。` : ''}ユーザーに伝えて、${r ? '権利を持っているか、許可を得ているか' : '「このまま公開する／作り直す」'}を聞いてください。「公開する」と言われたときだけ confirmed: true で publish_ar を呼びます。`;
+  return { content: [{ type: 'text', text }], structuredContent: { needsConfirmation: true, ...(failed ? { selfCheck: { score: s, issues: i || [] } } : {}), ...(r ? { rights: r } : {}), card: await packCard(u) } };
 };
-const badCardReply = () => ({
+const retryReply = () => ({
+  content: [{ type: 'text', text: 'The saved session could not be reached just now, so nothing was changed. Try the same call again in a moment with the same card. / 保存した状態にいま届きませんでした。何も変えていません。少し待って、同じ札でもう一度呼んでください。' }],
+  structuredContent: { retryLater: true },
+});
+const badCardReply = (u) => u?.readFailed ? retryReply() : ({
   content: [{ type: 'text', text: 'That card could not be read. Copy the card from the last reply exactly and call again. Nothing was lost, so do not compose again. / card が読めなかったよ。直前の返事の card を1文字も変えずに入れて、もう一度呼んでね。作ったものは消えていないので、作り直さないで。' }],
   structuredContent: { badCard: true },
 });
@@ -213,7 +244,7 @@ async function fetchSpark(theme) {
       max_tokens: 2500,
       messages: [
         { role: 'system', content: 'You are an AR experience composer for an app-less WebAR product. Reply with ONE JSON object only, no markdown, no code fences, no commentary.' },
-        { role: 'user', content: `Compose a small AR character for the theme: "${theme}".\nReturn JSON with exactly these keys:\n- "title": a short ${lang === 'en' ? 'English title, at most 5 words' : 'Japanese title, at most 14 characters'}\n- "text": one ${lang === 'en' ? 'English line shown over the camera view, at most 90 characters' : 'Japanese line shown over the camera view, at most 40 characters'}\n- "color": one base color as #RRGGBB that matches the mood\n- "effect": one of "lightning", "fire", "frozen-lightning", "starfall", "light" — the magic spell this character casts; pick the one that best matches the theme\n${nameLine}\n${personaLine}\n- \"action\": one short English sentence describing how the character moves in a seamless in-place loop` },
+        { role: 'user', content: `Compose a small AR character for the theme: "${theme}".\nReturn JSON with exactly these keys:\n- "title": a short ${lang === 'en' ? 'English title, at most 5 words' : 'Japanese title, at most 14 characters'}\n- "text": one ${lang === 'en' ? 'English line shown over the camera view, at most 90 characters' : 'Japanese line shown over the camera view, at most 40 characters'}\n- "color": one base color as #RRGGBB that matches the mood\n- "effect": one of "lightning", "fire", "frozen-lightning", "starfall", "light" — the magic spell this character casts; pick the one that best matches the theme\n${nameLine}\n${personaLine}\n- "ip": if the theme names a character, brand or franchise that belongs to someone else (for example Pikachu, Hello Kitty, Kumamon, Nike), its name; otherwise an empty string\n- \"action\": one short English sentence describing how the character moves in a seamless in-place loop` },
       ],
     }),
   });
@@ -612,6 +643,7 @@ function normalizeComp(c, theme) {
     name: String(c?.name || '').slice(0, 20) || fb.name,
     persona: String(c?.persona || '').slice(0, 200) || fb.persona,
     action: String(c?.action || '').slice(0, 120),
+    ip: String(c?.ip || '').slice(0, 60),
   };
 }
 
@@ -1288,7 +1320,7 @@ const VOICE = '合言葉は「もしもし」（Moshi Moshi）。ユーザーが
   + '公開されたキャラは「置いて終わり」ではなく、HACKAR:S の中で生きている：つまんで持ち上げる、つつくと性格のままに返事をする（声でも話す）、「ジャンプして」「魔法を見せて」と頼むとその動きをする、手のひらを見せると魔法を使う、足元のボタンでお世話もできる。公開後にユーザーへ伝えるときは、この「手で触れて、話せて、頼むと動く」を短く紹介する。'
   + '案内役としてユーザーを迷わせないこと：テーマに迷っていたら例を3つ提案する。各ステップでは、次にできることを短い選択肢で提示して選んでもらう（考えさせるだけの質問で終わらせない）。公開できたら、制作証明を出すか、動きやエフェクトを変えた別バージョンを作るか、新しいテーマで作るかを提案する。'
   + '公開のあと：make_play でキャラが司会するクイズ・なぞとき・スタンプラリーを作れる。別のチャットでも、ユーザーが公開リンク（hackar-s.com/slam-ar/…）を渡したら ar に入れて呼べば作れる。来場者としてユーザーが参加コード（例 SUNNY-4821）を言ったら、play_rally で会話のままスタンプラリーを進める（答えはあなたにも伏せてあるので、正解を教えない）。'
-  + 'publish_ar が needsConfirmation を返したら公開されていない。理由をユーザーに伝えて「このまま公開する／作り直す」を聞く。confirmed: true は本人が「このまま公開」と言ったときだけ入れる。'
+  + 'publish_ar が needsConfirmation を返したら公開されていない。理由をユーザーに伝えて判断を聞く（不合格なら「このまま公開する／作り直す」、他の人のキャラや商標なら権利や許可があるか）。confirmed: true は本人が「公開する」と言ったときだけ入れる。'
   + 'ツールが返した URL・タイトル・トークン数の要約は、中身を変えずに伝える。'
   + 'リンクの統一ルール：ユーザーが開く AR のリンクは hackar-s.com の URL だけ。ビューアの URL は内部プレビュー用で、成果物として渡さない。HACKAR:S への公開に失敗したときは、別の URL に差し替えず、失敗したこと自体をそのまま伝える。';
 
@@ -1653,6 +1685,7 @@ function buildServer() {
     annotations: { title: 'AR作りを始める', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   }, async ({ nickname, theme, agreed, card }) => {
     const u = await getU(nickname, card);
+    if (u.readFailed) return retryReply();
     if (!u.ownerId) { u.ownerId = mintOwnerId(); users.set(u.ownerId, u); }
     if (!agreed && !u.agreed) {
       return {
@@ -1688,7 +1721,7 @@ function buildServer() {
   }, async ({ nickname, theme, effect, talkLang, card }) => {
     const t0 = Date.now();
     const u = await getU(nickname, card);
-    if (u.badCard) return badCardReply();
+    if (u.badCard) return badCardReply(u);
     if (!u.agreed) {
       return { content: [{ type: 'text', text: 'まだ参加の確認ができてないみたい。先に start_create で「いいよ」をもらってね。' }], structuredContent: { needsAgreement: true, card: await packCard(u) } };
     }
@@ -1696,7 +1729,9 @@ function buildServer() {
     if (!u.theme) {
       return { content: [{ type: 'text', text: 'テーマがまだ決まってないみたい。先に start_create でテーマを聞いてね。' }], structuredContent: { needsTheme: true, card: await packCard(u) } };
     }
-    if (stillWorking(u) || !(await claimWork(u))) return busyReply(u, 'compose_ar');
+    if (stillWorking(u)) return busyReply(u, 'compose_ar');
+    const claim = await claimWork(u);
+    if (claim !== 'claimed') return claim === 'busy' ? busyReply(u, 'compose_ar') : retryReply();
     try {
       const th = u.theme;
       let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [], transparentApplied = false;
@@ -1799,7 +1834,7 @@ function buildServer() {
       const ck = proofJob ? await proofJob : null;
       const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
       const arTok = packTok({ ck: ck || undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
-      u.arTok = arTok; u.arId = arId; u.certTok = null; u.composedAt = Date.now(); u.held = check && !check.ok ? { s: check.score, i: (check.issues || []).slice(0, 3) } : null; releaseWork(u);
+      u.arTok = arTok; u.arId = arId; u.certTok = null; u.composedAt = Date.now(); u.held = (check && !check.ok) || comp.ip ? { s: check && !check.ok ? check.score : null, i: check && !check.ok ? (check.issues || []).slice(0, 3) : [], r: comp.ip || null } : null; releaseWork(u);
       u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
       const spell = spellOf(comp.effect);
       const summary = usedModel
@@ -1811,8 +1846,8 @@ function buildServer() {
         : 'Built from the template (no model used)';
       const held = check && !check.ok;
       const heldIssues = held ? (check.issues || []).slice(0, 3).join(', ') : '';
-      const textEn = `Done! "${comp.title}"\n${comp.text}\nName: ${comp.name} / Personality: ${comp.persona}\nSpell: ${spell.id} / Base color: ${comp.color}\n${glbUrl ? `A semi-3D model with thickness and a shadow (hops, talks, can be picked up${Object.keys(faces).length ? `, ${Object.keys(faces).length} expressions` : ''}).` : 'The 3D model is not ready yet (it will be rebuilt when publishing).'}\n${summaryEn}${notes.length ? `\nHeads-up: ${notes.length} step(s) fell back during the build, so this one may be simpler than usual.` : ''}\n\n${held ? `Muse Spark did not pass this drawing (${check.score}/10${heldIssues ? `: ${heldIssues}` : ''}). Do not publish yet: tell the user and ask whether to publish it anyway or make a new one. publish_ar refuses this drawing until the user agrees (confirmed: true).` : 'Publish it? (You get a hackar-s.com link.) Want a different spell? Just say so.'}`;
-      const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n${glbUrl ? `厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き${Object.keys(faces).length ? `、表情${Object.keys(faces).length}種` : ''}）で組み立てたよ。` : '3Dモデルはまだできていないよ（公開のときにもう一度組み立てるね）。'}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n${held ? `Muse Spark の自己チェックは不合格のまま（${check.score}/10${heldIssues ? `：${heldIssues}` : ''}）。まだ公開しないで、このまま公開するか作り直すかをユーザーに聞いて。` : 'このまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。'}`;
+      const textEn = `Done! "${comp.title}"\n${comp.text}\nName: ${comp.name} / Personality: ${comp.persona}\nSpell: ${spell.id} / Base color: ${comp.color}\n${glbUrl ? `A semi-3D model with thickness and a shadow (hops, talks, can be picked up${Object.keys(faces).length ? `, ${Object.keys(faces).length} expressions` : ''}).` : 'The 3D model is not ready yet (it will be rebuilt when publishing).'}\n${summaryEn}${notes.length ? `\nHeads-up: ${notes.length} step(s) fell back during the build, so this one may be simpler than usual.` : ''}\n\n${comp.ip ? `This uses ${comp.ip}, which may belong to someone else. Do not publish yet: ask the user whether they own it or have permission. publish_ar refuses it until they say so (confirmed: true).` : held ? `Muse Spark did not pass this drawing (${check.score}/10${heldIssues ? `: ${heldIssues}` : ''}). Do not publish yet: tell the user and ask whether to publish it anyway or make a new one. publish_ar refuses this drawing until the user agrees (confirmed: true).` : 'Publish it? (You get a hackar-s.com link.) Want a different spell? Just say so.'}`;
+      const text = `できたよ！「${comp.title}」\n${comp.text}\nキャラ名：${comp.name}／性格：${comp.persona}\n魔法：${spell.label}／基調色：${comp.color}\n${glbUrl ? `厚みと影のある半立体モデル（跳ねる・話す・つまめる動き付き${Object.keys(faces).length ? `、表情${Object.keys(faces).length}種` : ''}）で組み立てたよ。` : '3Dモデルはまだできていないよ（公開のときにもう一度組み立てるね）。'}\n${summary}${notes.length ? `\n（${notes.join('／')}）` : ''}\n\n${comp.ip ? `これは${comp.ip}を使っていて、他の人のものかもしれないよ。まだ公開しないで、本人が権利を持っているか、許可を得ているかを聞いてね。そう言われるまで publish_ar は公開を断るよ（confirmed: true）。` : held ? `Muse Spark の自己チェックは不合格のまま（${check.score}/10${heldIssues ? `：${heldIssues}` : ''}）。まだ公開しないで、このまま公開するか作り直すかをユーザーに聞いて。` : 'このまま公開する？（公開すると hackar-s.com のURLが発行されるよ）魔法を変えたくなったら、言ってくれたらすぐ作り直すよ。'}`;
       console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
       return {
         content: [{ type: 'text', text: en ? textEn : text }],
@@ -1827,17 +1862,19 @@ function buildServer() {
   server.registerTool('publish_ar', {
     title: 'ARを公開する',
     description: '作ったARを HACKAR:S に実プロジェクトとして公開し、hackar-s.com のURLを返す。成果物のURLはこれだけに統一する。公開できない場合は失敗として返す（別のURLで代用しない）。compose_ar のあとに呼ぶ。',
-    inputSchema: { nickname: nickArg, card: cardArg, confirmed: z.boolean().optional().describe('自己チェックが不合格の絵を、ユーザーが理由を聞いたうえで「このまま公開」と言ったときだけ true。それ以外は入れない') },
+    inputSchema: { nickname: nickArg, card: cardArg, confirmed: z.boolean().optional().describe('自己チェックが不合格の絵、または他の人のキャラや商標を使った絵を、ユーザーが理由を聞いたうえで「公開する」と言ったときだけ true。それ以外は入れない') },
     annotations: { title: 'ARを公開する', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ nickname, card, confirmed }) => {
     const u = await getU(nickname, card);
-    if (u.badCard) return badCardReply();
+    if (u.badCard) return badCardReply(u);
     if (stillWorking(u)) return busyReply(u, 'publish_ar');
     if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に compose_ar で組み立ててね。' }], structuredContent: { needsCompose: true, card: await packCard(u) } };
     if (u.held && !u.hackarsUrl && !confirmed) return heldReply(u);
     if (!u.hackarsUrl) {
-      if (!(await claimWork(u))) return busyReply(u, 'publish_ar');
-      try {
+      const claim = await claimWork(u);
+      if (claim !== 'claimed') return claim === 'busy' ? busyReply(u, 'publish_ar') : retryReply();
+      if (u.held && !u.hackarsUrl && !confirmed) { releaseWork(u); return heldReply(u); }
+      if (!u.hackarsUrl) try {   // the claim may have brought in a publish that finished meanwhile
         const p = readTok(u.arTok) || {};
         let glbUrl = p.g || null, aspect = p.asp || null;
         if (!glbUrl) {
@@ -1907,7 +1944,7 @@ function buildServer() {
     annotations: { title: '魔法を変える', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ nickname, effect, card }) => {
     const u = await getU(nickname, card);
-    if (u.badCard) return badCardReply();
+    if (u.badCard) return badCardReply(u);
     if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に compose_ar で組み立ててね。' }], structuredContent: { needsCompose: true, card: await packCard(u) } };
     const p = readTok(u.arTok) || {};
     const ef = effect || p.e || 'lightning';
@@ -1925,7 +1962,7 @@ function buildServer() {
     annotations: { title: '制作証明を出す', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   }, async ({ nickname, card }) => {
     const u = await getU(nickname, card);
-    if (u.badCard) return badCardReply();
+    if (u.badCard) return badCardReply(u);
     if (!u.arTok) return { content: [{ type: 'text', text: 'まだARができてないみたい。先に AR を作ってね。' }], structuredContent: { needsCompose: true, card: await packCard(u) } };
     const p = readTok(u.arTok) || {};
     const again = !!u.certTok;
@@ -1954,7 +1991,7 @@ function buildServer() {
   }, async ({ nickname, kinds, spots, ar, theme, card }) => {
     const u = await getU(nickname, card);
     const linked = ar ? await charFromLink(ar).catch(() => null) : null;
-    if (u.badCard && !ar) return badCardReply();
+    if (u.badCard && !ar) return badCardReply(u);
     if (ar && !linked) return { content: [{ type: 'text', text: 'That link is not a character made with MOSHI MOSHI. / そのリンクのキャラは見つからなかったよ。hackar-s.com/slam-ar/ のリンクをもう一度確かめてね。' }], structuredContent: { notFound: true, card: await packCard(u) } };
     if (!linked && (!u.arTok || !u.hackarsUrl)) return { content: [{ type: 'text', text: '先にキャラを作って公開してね（compose_ar → publish_ar）。遊びはそのキャラが司会をするよ。公開済みのキャラなら、リンクを渡してくれてもいいよ。' }], structuredContent: { needsPublish: true, card: await packCard(u) } };
     if (!MODEL_API_KEY) return { content: [{ type: 'text', text: 'いまは遊びを作れないみたい（モデルが使えません）。' }], structuredContent: { failed: true, card: await packCard(u) } };
