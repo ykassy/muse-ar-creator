@@ -1,4 +1,4 @@
-// Shared ranking for the AR Creator "20-second challenge" (Hand Play game.js).
+// Shared ranking for the MOSHI MOSHI "20-second challenge" (Hand Play game.js).
 // One small JSON file per project in the deployments bucket (ar-creator/rank/<projectId>.json),
 // read and rewritten server-side with the service key: no table / schema change.
 // GET  /api/ar-rank?project=<uuid>              -> { list }

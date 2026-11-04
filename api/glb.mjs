@@ -777,7 +777,7 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
   }
 
   const gltf = {
-    asset: { version: '2.0', generator: 'AR Creator glb.mjs' },
+    asset: { version: '2.0', generator: 'MOSHI MOSHI glb.mjs' },
     scene: 0,
     scenes: [{ nodes: [0] }],
     nodes: [

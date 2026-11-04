@@ -32,7 +32,7 @@
           }
 
 // ---- loading spinner while hand tracking / spells get ready ----
-    // AR Creator loading indicator: a spinner while the hand tracker / spell effects get ready
+    // MOSHI MOSHI loading indicator: a spinner while the hand tracker / spell effects get ready
     // (compiling them can stall the page for a moment). The spin is a compositor-only CSS animation,
     // so it keeps turning even while the main thread is busy.
     const _creatorLoads = new Set()
@@ -174,8 +174,8 @@
         .catch(e => { loaded(); dbg('HandPlay load failed: ' + e.message) })
     }
 
-// ---- two-finger twist: turn the way the fingers turn (AR Creator projects only) ----
-          // AR Creator projects (Hand Play / Ultra FX): turn the way the fingers twist, and no jump at ±180°.
+// ---- two-finger twist: turn the way the fingers turn (MOSHI MOSHI projects only) ----
+          // MOSHI MOSHI projects (Hand Play / Ultra FX): turn the way the fingers twist, and no jump at ±180°.
           // Other projects keep the original behaviour.
           const ovs = (window.__overlayData && Object.values(window.__overlayData).find(v => v && v.overlays)?.overlays) || []
           if (ovs.some(o => o.isHandPlay || o.isUltraFx)) {
