@@ -1308,6 +1308,19 @@ async function makeFaces(rawPngBuf, keyedBuf, keyCh) {
 const normAns = (s) => String(s || '').normalize('NFKC').toLowerCase()
   .replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
   .replace(/[\s、。・,.!?！？「」『』()（）"'\-]/g, '');
+// People answer in sentences ("An umbrella!", "I think it's boots", 「かさだよ」), so try the whole reply, then its words.
+const NOT_ANSWERS = new Set(['a', 'an', 'the', 'it', 'its', 's', 'is', 'i', 'im', 'think', 'guess', 'maybe', 'my', 'answer', 'that', 'this', 'must', 'be', 'are', 'you', 'um', 'uh', 'oh']);
+const answerForms = (s) => {
+  const text = String(s || '').normalize('NFKC').toLowerCase();
+  const words = text.split(/[^a-z0-9぀-ヿ一-鿿]+/).filter((w) => w && !NOT_ANSWERS.has(w));
+  const forms = new Set([normAns(text), normAns(words.join('')), ...words.map(normAns)]);
+  for (const f of [...forms]) {
+    forms.add(f.replace(/(です|だよ|だね|だ|かな|でしょう|でしょ|だと思う|とおもう)$/, ''));
+    if (/^[a-z]{3,}$/.test(f)) forms.add(f.endsWith('s') ? f.slice(0, -1) : `${f}s`);
+  }
+  forms.delete('');
+  return [...forms];
+};
 async function callPlaySpark({ name, persona, theme, lang, nSpots }) {
   const L = lang === 'en' ? 'English' : 'Japanese (friendly, easy enough for kids; riddle answers in hiragana)';
   const ask = `You make a small play experience hosted by the character "${name}" (theme: "${theme}"; personality: "${persona}"). Write everything in ${L}, in the character's world. `
@@ -1504,7 +1517,7 @@ const sha = (salt, x) => createHash('sha256').update(`${salt}:${x}`).digest('hex
 function checkTask(d, task, answer) {
   if (task.type === 'riddle') {
     const r = d.riddle?.[task.i]; if (!r) return null;
-    return { ok: r.a.includes(sha(d.salt, normAns(answer))), explain: r.explain || '' };
+    return { ok: answerForms(answer).some((f) => r.a.includes(sha(d.salt, f))), explain: r.explain || '' };
   }
   const q = d.quiz?.[task.i]; if (!q) return null;
   const t = String(answer ?? '').trim();
