@@ -1241,6 +1241,17 @@ const FACE_PROMPTS = {
   sad: 'Change ONLY the facial expression of the character to sad: droopy eyebrows, teary eyes, a small downturned mouth. Keep everything else - pose, body, colors, background, art style - exactly the same.',
   angry: 'Change ONLY the facial expression of the character to angry: angled eyebrows, puffed cheeks, a pouting mouth. Keep everything else - pose, body, colors, background, art style - exactly the same.',
 };
+// 裏側の絵：同じキャラを後ろから見た絵を描かせ、GLB の裏面に貼る。失敗しても単色の裏のまま公開は止めない。
+const BACK_PROMPT = 'Redraw this exact same character as seen from directly behind: a back view. Show the back of the head, hair, clothes and body, with no face. '
+  + 'Keep the same size, position, outline, proportions, colors and art style, and keep the flat solid background exactly the same. No text, no shadow.';
+async function makeBack(rawPngBuf, keyCh) {
+  if (!MODEL_API_KEY || !rawPngBuf) return null;
+  try {
+    const b64 = await callImageEdit(rawPngBuf.toString('base64'), BACK_PROMPT);
+    if (!b64) { console.log('[AR] back-failed', JSON.stringify({ status: lastEditStatus })); return null; }
+    return decodePng(makeTransparent(Buffer.from(b64, 'base64'), keyCh));
+  } catch (e) { console.log('[AR] back-failed', JSON.stringify({ error: String(e?.message || e) })); return null; }
+}
 // 表情の絵はプレイヤー側が切り出して GLB の絵に合わせて貼るので、
 // 余白込みのまま長辺 512px に縮めてから置く（1枚 1.6MB → 約200KB 狙い）。
 function shrinkFace(img) {
@@ -1629,15 +1640,18 @@ function buildServer() {
     // 半立体GLB（厚み・小口・影・9種の動き）をサーバーで組み立て、永続化する。
     // ここで保存しておくことで、別インスタンスの publish でも公開できる。
     if (keyedBuf) {
+      const backJob = makeBack(rawPngBuf, keyCh);
+      const facesJob = makeFaces(rawPngBuf, keyedBuf, keyCh).catch(() => ({}));
       try {
         const { w, h, rgba } = decodePng(keyedBuf);
-        const built = buildGlb({ rgba, w, h, encodePng, name: 'character' });
+        const back = await backJob;
+        const built = buildGlb({ rgba, w, h, encodePng, name: 'character', ...(back ? { backRgba: back.rgba, backW: back.w, backH: back.h } : {}) });
         glbAspect = built.aspect;
         glbUrl = await storeAsset('glb', built.glb);
         if (!glbUrl) notes.push('3Dモデルの保存に失敗しました（公開時に再試行します）');
-        console.log('[AR] glb-built', JSON.stringify({ theme: th, bytes: built.glb.length, aspect: glbAspect, stored: !!glbUrl }));
+        console.log('[AR] glb-built', JSON.stringify({ theme: th, bytes: built.glb.length, aspect: glbAspect, stored: !!glbUrl, back: !!back }));
       } catch (e) { console.log('[AR] glb-failed', JSON.stringify({ theme: th, error: String(e?.message || e) })); notes.push('3Dモデルの生成に失敗しました'); }
-      try { faces = await makeFaces(rawPngBuf, keyedBuf, keyCh); } catch { faces = {}; }
+      faces = await facesJob;
     }
 
     const usage = (sparkUsage || imageUsage || samUsage) ? { s: normUsage(sparkUsage), i: normUsage(imageUsage), ...(samUsage ? { a: samUsage } : {}), ...(checkUsage ? { k: normUsage(checkUsage) } : {}) } : null;

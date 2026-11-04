@@ -1,6 +1,6 @@
 // glb.mjs - pure-JS semi-3D plate GLB builder (server-side port of the Blender
 // pipeline in pipeline/). Transparent RGBA art in -> GLB out with:
-//   - silhouette plate (front = flooded opaque texture, rim/back = edge colour)
+//   - silhouette plate (front = flooded opaque texture, rim = edge colour, back = generated back view or edge colour)
 //   - contour eroded ~2px and the texture flooded with the edge colour, so rim
 //     vertices never open a see-through hole into the plate's inside
 //   - 3-joint squash & stretch rig (legs -> belly -> head, height smoothstep)
@@ -520,7 +520,7 @@ function quatMul(q1, q2) { // q1 * q2
 }
 
 const DBG = typeof process !== 'undefined' && process.env && process.env.GLB_DEBUG;
-export function buildGlb({ rgba, w, h, encodePng, name = 'character' }) {
+export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba = null, backW = 0, backH = 0 }) {
   const _t0 = Date.now(); const _lap = (s) => { if (DBG) console.log('[glb]', s, Date.now() - _t0, 'ms'); };
   if (!rgba || rgba.length < w * h * 4) throw new Error('rgba size mismatch');
   // mask from alpha, largest-component cleanup is skipped (server art is clean)
@@ -560,6 +560,34 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character' }) {
   }
   _lap('mask+erode+flood');
   const texPng = encodePng(bw, bh, Buffer.from(tex));
+  // back of the plate: a generated back view, fitted to the same box and mirrored (seen from behind, left and right swap)
+  let backPng = null;
+  if (backRgba && backW && backH) {
+    // the body's box, ignoring thin parts such as a held umbrella, so the two drawings line up
+    const bodyBox = (W, H, on) => {
+      const cols = new Int32Array(W), rows = new Int32Array(H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (on(x, y)) { cols[x]++; rows[y]++; }
+      const span = (a) => { const t = Math.max(...a) * 0.14; let i = 0, j = a.length - 1; while (i < j && a[i] < t) i++; while (j > i && a[j] < t) j--; return [i, j]; };
+      return [...span(cols), ...span(rows)];
+    };
+    const px = [[], [], []];
+    for (let i = 0; i < backW * backH; i += 7) if (backRgba[i * 4 + 3] > 200) for (let k = 0; k < 3; k++) px[k].push(backRgba[i * 4 + k]);
+    if (px[0].length > 64) {
+      const fill = px.map((c) => c.sort((p, q) => p - q)[c.length >> 1]);
+      const [fx0, fx1, fy0, fy1] = bodyBox(bw, bh, (x, y) => mask[(y0 + y) * w + x0 + x]);
+      const [bx0, bx1, by0, by1] = bodyBox(backW, backH, (x, y) => backRgba[(y * backW + x) * 4 + 3] > 127);
+      const bt = new Uint8Array(bw * bh * 4);
+      for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+        const sx = Math.round(bx1 - ((x - fx0) / Math.max(1, fx1 - fx0)) * (bx1 - bx0));
+        const sy = Math.round(by0 + ((y - fy0) / Math.max(1, fy1 - fy0)) * (by1 - by0));
+        const inside = sx >= 0 && sy >= 0 && sx < backW && sy < backH;
+        const si = inside ? (sy * backW + sx) * 4 : 0, a = inside ? backRgba[si + 3] / 255 : 0, di = (y * bw + x) * 4;
+        for (let k = 0; k < 3; k++) bt[di + k] = Math.round(backRgba[si + k] * a + fill[k] * (1 - a));
+        bt[di + 3] = 255;
+      }
+      backPng = encodePng(bw, bh, Buffer.from(bt));
+    }
+  }
   // contours from the eroded mask (cropped space), simplified + Chaikin x2
   const loopsPx = traceLoops(mask, w, h)
     .map((loop) => loop.map(([x, y]) => [x - x0, y - y0]))
@@ -617,13 +645,14 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character' }) {
     const ring = allPts[r];
     for (let i = 0; i < ring.length; i++) {
       const [wx, wy] = ring[i];
-      pushVert(wx, wy, -thick, 0, 0, -1, 0, 0, weightsFor(wy));
+      const u = (wx / scale + bw / 2) / bw, v = (bh - wy / scale) / bh;
+      pushVert(wx, wy, -thick, 0, 0, -1, u, v, weightsFor(wy));
     }
   }
-  const frontIdx = [], edgeIdx = [];
+  const frontIdx = [], edgeIdx = [], backIdx = [];
   for (let i = 0; i < capTris.length; i += 3) {
     frontIdx.push(frontBase + capTris[i], frontBase + capTris[i + 1], frontBase + capTris[i + 2]);
-    edgeIdx.push(backBase + capTris[i + 2], backBase + capTris[i + 1], backBase + capTris[i]);
+    (backPng ? backIdx : edgeIdx).push(backBase + capTris[i + 2], backBase + capTris[i + 1], backBase + capTris[i]);
   }
   // walls: duplicate rings with radial normals
   const wallIndex = [];
@@ -696,6 +725,7 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character' }) {
   const aWgt = acc(f32(wgt), 'VEC4', 5126, wgt.length / 4);
   const aIdxF = acc(u32(frontIdx), 'SCALAR', 5125, frontIdx.length);
   const aIdxE = acc(u32(edgeIdx), 'SCALAR', 5125, edgeIdx.length);
+  const aIdxB = backPng ? acc(u32(backIdx), 'SCALAR', 5125, backIdx.length) : -1;
   const [bmn, bmx] = minMax3(bpos);
   const aBPos = acc(f32(bpos), 'VEC3', 5126, 4, bmn, bmx);
   const aBNor = acc(f32(bnor), 'VEC3', 5126, 4);
@@ -710,6 +740,7 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character' }) {
   bufferViews[bufferViews.length - 1].byteStride = undefined;
   const img0View = bufferViews.length; bufferViews.push(addBuf(texPng));
   const img1View = bufferViews.length; bufferViews.push(addBuf(blobPng));
+  const img2View = backPng ? bufferViews.length : -1; if (backPng) bufferViews.push(addBuf(backPng));
 
   // animations
   const clips = makeClips();
@@ -762,6 +793,7 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character' }) {
       { name: 'plate', primitives: [
         { attributes: { POSITION: aPos, NORMAL: aNor, TEXCOORD_0: aUv, JOINTS_0: aJnt, WEIGHTS_0: aWgt }, indices: aIdxF, material: 0 },
         { attributes: { POSITION: aPos, NORMAL: aNor, TEXCOORD_0: aUv, JOINTS_0: aJnt, WEIGHTS_0: aWgt }, indices: aIdxE, material: 1 },
+        ...(backPng ? [{ attributes: { POSITION: aPos, NORMAL: aNor, TEXCOORD_0: aUv, JOINTS_0: aJnt, WEIGHTS_0: aWgt }, indices: aIdxB, material: 3 }] : []),
       ] },
       { name: 'blob', primitives: [
         { attributes: { POSITION: aBPos, NORMAL: aBNor, TEXCOORD_0: aBUv }, indices: aBIdx, material: 2 },
@@ -775,11 +807,14 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character' }) {
         emissiveFactor: [edgeLin[0] * 0.18, edgeLin[1] * 0.18, edgeLin[2] * 0.18] },
       { name: 'BlobShadow', pbrMetallicRoughness: { baseColorTexture: { index: 1 }, baseColorFactor: [0, 0, 0, 1], roughnessFactor: 1, metallicFactor: 0 },
         alphaMode: 'BLEND', doubleSided: true },
+      ...(backPng ? [{ name: 'BackArt', pbrMetallicRoughness: { baseColorTexture: { index: 2 }, roughnessFactor: 0.5, metallicFactor: 0 },
+        emissiveTexture: { index: 2 }, emissiveFactor: [0.5, 0.5, 0.5] }] : []),
     ],
-    textures: [{ source: 0 }, { source: 1 }],
+    textures: [{ source: 0 }, { source: 1 }, ...(backPng ? [{ source: 2 }] : [])],
     images: [
       { bufferView: img0View, mimeType: 'image/png' },
       { bufferView: img1View, mimeType: 'image/png' },
+      ...(backPng ? [{ bufferView: img2View, mimeType: 'image/png' }] : []),
     ],
     bufferViews, accessors, animations,
     buffers: [{ byteLength: binLen }],
