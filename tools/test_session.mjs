@@ -161,4 +161,15 @@ assert.equal(unread.retryLater, true);
 assert.equal(unread.url, undefined);
 unreadable.clear();
 
+// A compose reply that never arrived: the same call gets the same character, not a second drawing.
+const lost0 = await call(A, 'start_create', { nickname: 'lost', theme: 'a lost reply', agreed: true });
+const lost1 = await call(A, 'compose_ar', { nickname: 'lost', card: lost0.card });
+const lost2 = await call(B, 'compose_ar', { nickname: 'lost', card: lost0.card });
+assert.equal(lost2.resumed, true, 'a card older than the character means the reply was lost');
+assert.equal(lost2.title, lost1.title);
+assert.equal((await call(A, 'compose_ar', { nickname: 'lost', theme: 'a lost reply', card: lost0.card })).resumed, true);
+// Whoever did get the reply can still ask for a new one, and a new theme is always a new character.
+assert.notEqual((await call(B, 'compose_ar', { nickname: 'lost', card: lost1.card })).resumed, true);
+assert.notEqual((await call(A, 'compose_ar', { nickname: 'lost', theme: 'a new theme', card: lost0.card })).resumed, true);
+
 console.log('session checks passed');

@@ -55,10 +55,10 @@ const readTok = (tok) => {
 // an older character. Long HC1 cards from earlier chats are still accepted.
 const stateName = (o, q) => `${String(o).toUpperCase()}-${String(q).padStart(4, '0')}`;
 const stateUrl = (o, q) => `${PLAY_JSON_BASE}code/${stateName(o, q)}.json?v=${Date.now()}`;
-const stateOf = (u) => ({ n: u.nickname, o: u.ownerId || null, a: u.agreed ? 1 : 0, t: u.theme || null, ar: u.arTok || null, c: u.certTok || null, us: u.usage || null, hu: u.hackarsUrl || null, hp: u.hackarsProjectId || null, ct: u.composedAt || 0, w: u.working || 0, h: u.held || null });
+const stateOf = (u) => ({ n: u.nickname, o: u.ownerId || null, a: u.agreed ? 1 : 0, t: u.theme || null, ar: u.arTok || null, c: u.certTok || null, us: u.usage || null, hu: u.hackarsUrl || null, hp: u.hackarsProjectId || null, ct: u.composedAt || 0, cq: u.composedSeq || 0, w: u.working || 0, h: u.held || null });
 const longCard = (u) => `HC1.${packTok(stateOf(u))}`;
 const applyState = (u, c) => {
-  Object.assign(u, { agreed: !!c.a, theme: c.t, arTok: c.ar, arId: readTok(c.ar)?.i || null, certTok: c.c, usage: c.us, hackarsUrl: c.hu, hackarsProjectId: c.hp || null, composedAt: c.ct || 0, working: c.w || 0, held: c.h || null, seq: c.q });
+  Object.assign(u, { agreed: !!c.a, theme: c.t, arTok: c.ar, arId: readTok(c.ar)?.i || null, certTok: c.c, usage: c.us, hackarsUrl: c.hu, hackarsProjectId: c.hp || null, composedAt: c.ct || 0, composedSeq: c.cq || 0, working: c.w || 0, held: c.h || null, seq: c.q });
   u.savedJson = JSON.stringify(stateOf(u));
 };
 async function saveVersion(o, q, json) {
@@ -190,6 +190,27 @@ async function storeAsset(kind, buf, name) {
     return r.ok && j.url ? j.url : null;
   } catch { return null; }
 }
+// In run 41 Muse's client reported that the event stream ended before the result, and Muse called
+// compose_ar again, which drew a second character. The saved versions can tell: a card older than
+// the version that holds the character means the caller never got that reply. So a repeat with the
+// same theme, soon after, gets the same character back instead of a new drawing.
+const seqOfCard = (card) => { const m = /^HC3\.[a-z0-9]{4,14}\.(\d{1,4})\./.exec((card || '').trim()); return m ? +m[1] : null; };
+const missedReply = (u, card, theme) => {
+  const seen = seqOfCard(card);
+  if (seen === null || !u.arTok || u.hackarsUrl || !(u.composedSeq > seen) || Date.now() - (u.composedAt || 0) > 300_000) return false;
+  return readTok(u.arTok)?.th === (theme ? String(theme).slice(0, 160) : u.theme);
+};
+const missedComposeReply = async (u) => {
+  const p = readTok(u.arTok) || {};
+  const spell = spellOf(p.e);
+  const hold = u.held ? `${u.held.r ? `\n${u.held.r === '?' ? 'Muse Spark could not say whether this uses someone else\'s IP.' : `This uses ${u.held.r}, which may belong to someone else.`}` : ''}${u.held.s !== null && u.held.s !== undefined ? `\nMuse Spark scored this drawing ${u.held.s}/10.` : ''}\nDo not publish yet: ask the user first. publish_ar refuses it until they agree (confirmed: true).` : '\nPublish it? (You get a hackar-s.com link.)';
+  const holdJa = u.held ? `${u.held.r ? `\n${u.held.r === '?' ? 'Muse Spark は、他の人の IP を使っているかどうかを確かめられなかったよ。' : `これは${u.held.r}を使っていて、他の人のものかもしれないよ。`}` : ''}${u.held.s !== null && u.held.s !== undefined ? `\nMuse Spark の判定は ${u.held.s}/10 だったよ。` : ''}\nまだ公開しないで、ユーザーに聞いてね。そう言われるまで publish_ar は公開を断るよ（confirmed: true）。` : '\nこのまま公開する？（公開すると hackar-s.com のURLが発行されるよ）';
+  const text = p.lg === 'en'
+    ? `This character was already finished, so nothing new was drawn (the last reply did not reach you). "${p.ti}"\n${p.tx}\nName: ${p.nm} / Personality: ${p.ps}\nSpell: ${spell.id}${hold}`
+    : `このキャラはもうできていたので、新しくは描かなかったよ（前の返事が届かなかったみたい）。「${p.ti}」\n${p.tx}\nキャラ名：${p.nm}／性格：${p.ps}\n魔法：${spell.label}${holdJa}`;
+  console.log('[AR] compose-resumed', JSON.stringify({ nickname: u.nickname, arId: u.arId }));
+  return { content: [{ type: 'text', text }], structuredContent: { resumed: true, preview: p.f?.neutral || null, title: p.ti, text: p.tx, color: p.c, effect: p.e, characterName: p.nm, persona: p.ps, theme: p.th, usedModel: true, hasGlb: !!p.g, card: await packCard(u) } };
+};
 const cardArg = z.string().max(20000).optional().describe('前のツールの structuredContent にある card（HC3. で始まる短い文字列）。1文字も変えずにそのまま入れる');
 // A compose can outlast a dropped call. These replies say what is still running, so Muse waits
 // instead of starting the same character again.
@@ -1732,8 +1753,10 @@ function buildServer() {
       return { content: [{ type: 'text', text: 'テーマがまだ決まってないみたい。先に start_create でテーマを聞いてね。' }], structuredContent: { needsTheme: true, card: await packCard(u) } };
     }
     if (stillWorking(u)) return busyReply(u, 'compose_ar');
+    if (missedReply(u, card, theme)) return missedComposeReply(u);
     const claim = await claimWork(u);
     if (claim !== 'claimed') return claim === 'busy' ? busyReply(u, 'compose_ar') : retryReply();
+    if (missedReply(u, card, theme)) { releaseWork(u); return missedComposeReply(u); }   // the claim may have brought in a compose that finished meanwhile
     try {
       const th = u.theme;
       let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [], transparentApplied = false;
@@ -1836,7 +1859,7 @@ function buildServer() {
       const ck = proofJob ? await proofJob : null;
       const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
       const arTok = packTok({ ck: ck || undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
-      u.arTok = arTok; u.arId = arId; u.certTok = null; u.composedAt = Date.now(); u.held = (check && !check.ok) || comp.ip ? { s: check && !check.ok ? check.score : null, i: check && !check.ok ? (check.issues || []).slice(0, 3) : [], r: comp.ip || null } : null; releaseWork(u);
+      u.arTok = arTok; u.arId = arId; u.certTok = null; u.composedAt = Date.now(); u.composedSeq = (u.seq || 0) + 1; u.held = (check && !check.ok) || comp.ip ? { s: check && !check.ok ? check.score : null, i: check && !check.ok ? (check.issues || []).slice(0, 3) : [], r: comp.ip || null } : null; releaseWork(u);
       u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
       const spell = spellOf(comp.effect);
       const summary = usedModel
