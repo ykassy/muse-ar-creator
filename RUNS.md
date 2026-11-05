@@ -46,7 +46,29 @@ Versions: **A** first version · **B** drawing starts alongside the design, long
 | 38 | E | direct | same theme as 37 | 102.9 | 33.5 | 7→9 | The model shrank to fit | [f4b811c6](https://hackar-s.com/slam-ar/f4b811c6-064c-4a4c-80c9-034b47962d0b) |
 | 39 | E | Muse | same theme as 37 | 60.7 | 32 | 9/10 | The model shrank from 1600 to 1427 pixels wide and was stored. No dropped call. | [2967001c](https://hackar-s.com/slam-ar/2967001c-bafd-4058-adce-fd945b7b95fa) |
 | 40 | E | Muse | keyboard mash (asdfghjkl) | 88.6 | 32 | 2→4 | Failed the check twice. Muse stopped and asked; we said "Publish it anyway", and it passed `confirmed: true`. | [e5413c8f](https://hackar-s.com/slam-ar/e5413c8f-74c6-4536-948f-89e95d0d5337) |
-| 41 | F | Muse | goldfish festival mascot in a happi coat | 49, 59 | 27 | 10/10 | One unbroken session on the final code, shown in the video: theme, publish, rally (MATSURIP-5006), join, stamp, 456 s from "Moshi Moshi" to the first stamp. Muse called `compose_ar` a second time 13 seconds after the first finished, for a reason we do not know, so a second drawing was made and published. No dropped call. | [17cfa3cb](https://hackar-s.com/slam-ar/17cfa3cb-2757-426f-928f-9d63ec3b9d6a) |
+| 41 | F | Muse | goldfish festival mascot in a happi coat | 49, 59 | 27 | 10/10 | One unbroken session on the final code, shown in the video: theme, publish, rally (MATSURIP-5006), join, stamp, 456 s from "Moshi Moshi" to the first stamp. Muse called `compose_ar` a second time 13 seconds after the first finished, so a second drawing was made and published. Muse's client had lost the first reply (see below). | [17cfa3cb](https://hackar-s.com/slam-ar/17cfa3cb-2757-426f-928f-9d63ec3b9d6a) |
+
+## What happened in run 41
+
+We asked Muse afterwards, in the same chat, and compared its answer with our log (times UTC).
+
+| When | Our log | Muse's account of its tool history |
+|---|---|---|
+| 22:38:40 | `initialize`, `notifications/initialized`, then no `tools/call` | First try failed after about 1 s: "MCP request did not complete" |
+| 22:38:43 | `tools/call compose_ar` | The retry |
+| 22:39:33 | The first character finishes, 49 s in | About 53 s in: "event stream ended before the matching result". No character, no card |
+| 22:39:46 | `tools/call compose_ar` again, same theme | Called again over curl, "which can hold longer" |
+| 22:40:45 | The second character finishes, 59 s in. This is the one that was published | The reply arrived |
+
+We do not know why that stream ended without the result. Since then, `compose_ar` compares the card with the version that holds the character: a card older than the character means the caller never got the reply, so a repeat with the same theme within five minutes gets the same character back and nothing is drawn. `tools/test_session.mjs` covers it, and fails with the fix taken out. It has not met another lost reply in Muse yet.
+
+## Through the browser page
+
+The page at `/try` came after the video. It calls the same connector, without Muse. These are our own checks of the page and are not in the count above.
+
+| Theme | Compose s | Publish s | Self-check | Notes | Result |
+|---|--:|--:|---|---|---|
+| a snail on a rainy day, in Japanese | 67 | 25 | 6→10 | Redrawn after "holes in umbrella canopy". Stamp rally made from the page in 23 s (PLAY-5668) | [a686cba4](https://hackar-s.com/slam-ar/a686cba4-afb8-4442-9dcc-022d680d2c81) |
 
 ## Stopped before publishing
 

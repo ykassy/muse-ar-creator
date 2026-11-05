@@ -188,6 +188,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const showErr = (m) => { $('err').textContent = m || ''; $('err').hidden = !m; };
 const startWait = (line, list) => {
   const t0 = Date.now(); $('wait').hidden = false; $('waitLine').textContent = line; $('waitList').hidden = !list;
+  $('wait').scrollIntoView({ behavior: 'smooth', block: 'center' });
   const tick = () => { const s = Math.floor((Date.now() - t0) / 1000); $('clock').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
   tick(); ticker = setInterval(tick, 1000);
 };
@@ -242,7 +243,9 @@ function showMade(s) {
   if (s.preview) { $('pic').src = s.preview; $('pic').alt = s.characterName || ''; } else $('pic').hidden = true;
   const c = s.selfCheck;
   const check = !c ? '' : c.redrawn && c.before ? T.redrawn(c.before.score, c.score) : T.checked(c.score);
-  $('facts').textContent = [check, `${T.spell}: ${T.spells[['auto', 'lightning', 'fire', 'frozen-lightning', 'starfall', 'light'].indexOf(s.effect)] || s.effect}`].filter(Boolean).join(' / ');
+  const u = s.usage || {};
+  const used = [u.s && `Muse Spark ${u.s.total} tokens`, u.i && `Muse Image ${u.i.total} tokens`, u.a && 'SAM 3.1'].filter(Boolean).join(', ');
+  $('facts').textContent = [check, `${T.spell}: ${T.spells[['auto', 'lightning', 'fire', 'frozen-lightning', 'starfall', 'light'].indexOf(s.effect)] || s.effect}`, used].filter(Boolean).join(' / ');
   $('made').hidden = false;
 }
 
