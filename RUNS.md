@@ -70,7 +70,8 @@ The page at `/try` came after the video. It calls the same connector, without Mu
 |---|--:|--:|---|---|---|
 | a snail on a rainy day, in Japanese | 67 | 25 | 6→10 | Redrawn after "holes in umbrella canopy". Stamp rally made from the page in 23 s (PLAY-5668) | [a686cba4](https://hackar-s.com/slam-ar/a686cba4-afb8-4442-9dcc-022d680d2c81) |
 | a bonfire spirit | 57 | 26 | 10/10 | Model turned in the page. Typed "Show me your magic!" before publishing: Spark chose `spell` | [9c36a26b](https://hackar-s.com/slam-ar/9c36a26b-6c5f-4d04-ac79-7f690aad437c) |
-| Kaki-chan, from a three-view sheet (a test sheet made with Muse Image for this check) | – | – | 10/10 | Front and back are the sheet's own pixels, no model drew them. The page asked about the rights first. This is the model in the video's closing scene | [12d96a90](https://hackar-s.com/slam-ar/12d96a90-6d3c-4cd8-8526-a12e64822f2f) |
+| Kaki-chan, from a three-view sheet (a test sheet made with Muse Image for this check) | – | – | 10/10 | Front and back come from the sheet, no model drew them. The page asked about the rights first. The first try lost part of the outline on the back, so the back is now placed by overlap and the outline follows the plate | [12d96a90](https://hackar-s.com/slam-ar/12d96a90-6d3c-4cd8-8526-a12e64822f2f) |
+| the same sheet, after that fix | 38 | 26 | 10/10 | This is the model in the video's closing scene | [a87cd8f2](https://hackar-s.com/slam-ar/a87cd8f2-e7d8-4a31-9754-baa5f9076698) |
 
 ## Stopped before publishing
 
