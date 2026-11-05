@@ -86,6 +86,7 @@ These ran after the runs above and did not try to publish, or were stopped on pu
 | Muse | Kumamon in a happi coat | – | 10/10 | Muse held it and asked the same question. Not published. |
 | direct | a paper boat on a river | 49.3 | 9/10 | Stream check for run 41, read line by line the way Muse's client reads it. The result arrived. Not published. |
 | direct | a tiny kite over the sea | 34.4 | passed | Lost-reply check: the same call again with the old card returned the same character in 4.2 s, with nothing drawn. Not published. |
+| page | a paper lantern fish | 77 | 7→10 | Lost-reply check through `/try`: the reply was dropped on purpose in the browser, the page repeated the call with the same card, and the same character came back in 5 s (`compose-resumed` in the log). Not published. |
 
 ## Looked at by eye
 
