@@ -1443,7 +1443,7 @@ function onWhiteSquare(b64) {
 async function callOwnPicture(picture, theme) {
   const b64 = onWhiteSquare(picture);
   const key = keyForPicture(Buffer.from(b64, 'base64'), theme);
-  const prompt = `Keep this character exactly as it is: the same design, shapes, colors, face, pose, line and art style. Do not redraw, restyle or improve it. Remove everything around it, and place the whole character, centered and complete inside the frame, on a completely solid vivid ${key.name} (${key.hex}) chroma key background that fills the entire frame edge to edge. No shadow, no gradient, no floor, no text.`;
+  const prompt = `Keep this character exactly as it is: the same design, shapes, colors, face, pose, line and art style. Do not redraw, restyle or improve it. If the picture shows it more than once, keep only the view from the front. Remove everything around it, and place the whole character, centered and complete inside the frame, on a completely solid vivid ${key.name} (${key.hex}) chroma key background that fills the entire frame edge to edge. No shadow, no gradient, no floor, no text.`;
   const out = await callImageEdit(b64, prompt) || await callImageEdit(b64, prompt);
   if (!out) throw new Error(`own picture edit failed: ${lastEditStatus}`);
   return { b64: out, remote: null, usage: null, type: 'image/png', keyCh: key.ch };
