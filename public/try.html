@@ -146,7 +146,7 @@ const T = ja ? {
   playH: 'スタンプラリーができました', playOpen: '遊ぶページを開く',
   code: (c) => `Muse でコネクターを追加した人は「Join ${c}」と話すと、チャットで遊べます。`,
   noteL: '使ってみてどうでしたか（任意・ひとこと。個人情報は書かないでください）', noteB: '送る', noteDone: 'ありがとうございます。',
-  busy: 'まだ作っています…', fail: '止まってしまいました。もう一度押してください。', pubFail: '公開に失敗しました。もう一度押してください。',
+  full: 'いま混み合っています。少しあとで試すか、待たずに触れるギャラリーの40体をどうぞ：/gallery', busy: 'まだ作っています…', fail: '止まってしまいました。もう一度押してください。', pubFail: '公開に失敗しました。もう一度押してください。',
   foot: '作るたびに有料の API を少し使うので、回数の上限があります。作ったキャラの権利の確認はしていません。HACK IT INC. が Meta Global AI Developer Hackathon のために作りました。',
 } : {
   h1: 'Make a character right here',
@@ -174,7 +174,7 @@ const T = ja ? {
   playH: 'Your stamp rally is ready', playOpen: 'Open the play page',
   code: (c) => `With the connector added, say "Join ${c}" in Muse to play it in the chat.`,
   noteL: 'How was it? (optional, one line, no personal details)', noteB: 'Send', noteDone: 'Thank you.',
-  busy: 'Still making it…', fail: 'That stopped. Press the button again.', pubFail: 'Publishing failed. Press the button again.',
+  full: 'Too many people are making characters right now. Try again in a while, or turn the 40 in the gallery with no wait: /gallery', busy: 'Still making it…', fail: 'That stopped. Press the button again.', pubFail: 'Publishing failed. Press the button again.',
   foot: 'Each character uses a little paid API credit, so there are rate limits. Rights are not checked. Built by HACK IT INC. for the Meta Global AI Developer Hackathon.',
 };
 const $ = (id) => document.getElementById(id);
@@ -209,7 +209,7 @@ async function call(name, args) {
   const msg = JSON.parse(data || text);
   if (msg.error) throw new Error(msg.error.message);
   const r = msg.result || {};
-  if (r.isError) throw new Error(r.content?.[0]?.text || T.fail);
+  if (r.isError) throw new Error(T.full);
   const s = r.structuredContent || {};
   if (s.card) card = s.card;
   return s;
