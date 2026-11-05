@@ -32,6 +32,12 @@ assert.deepEqual([...centre(art.back)], [...BLUE, 255], 'the back is the last vi
 assert.deepEqual([...art.raw.rgba.subarray(0, 4)], [0, 255, 0, 255], 'the raw copy stands on the key colour');
 assert.equal(art.cut.rgba[3], 0, 'around the character is transparent');
 
+// On a sheet, a part that floats over a view stays with it. The caption under it does not.
+const hat = findViews(page(300, 140, [[10, 40, 70, 120, RED], [30, 20, 50, 34, BLUE], [120, 40, 170, 120, GREY], [220, 40, 280, 120, BLUE], [20, 126, 60, 134, GREY]]));
+assert.equal(hat.views.length, 3);
+assert.equal(hat.views[0].length, 2, 'the floating hat joins the first view');
+assert.equal(hat.views.flat().some((c) => c.y0 > 120), false, 'the caption joins no view');
+
 // Spark's reading of the sheet wins over the usual order.
 const swapped = ownArt(sheet, 1, scale, findViews(sheet), { front: 3, back: 1 });
 assert.deepEqual([...centre(swapped.cut)], [...BLUE, 255], 'the view Spark calls the front is the front');

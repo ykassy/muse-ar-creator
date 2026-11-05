@@ -197,11 +197,12 @@ async function storeAsset(kind, buf, name) {
 // spell and language, within five minutes, not yet published) gets that character back instead of a
 // new drawing. A caller with the newest card, or with a different request, still gets a new one.
 const seqOfCard = (card) => { const m = /^HC3\.[a-z0-9]{4,14}\.(\d{1,4})\./.exec((card || '').trim()); return m ? +m[1] : null; };
-const missedReply = (u, card, { theme, effect, talkLang }) => {
+const pictureId = (b64) => (b64 ? createHash('sha256').update(b64).digest('hex').slice(0, 12) : '');
+const missedReply = (u, card, { theme, effect, talkLang, ownPicture }) => {
   const seen = seqOfCard(card);
   if (seen === null || !u.arTok || u.hackarsUrl || !(u.composedSeq > seen) || Date.now() - (u.composedAt || 0) > 300_000) return false;
   const p = readTok(u.arTok);
-  if (!p || (p.rq?.[0] || 'auto') !== (effect || 'auto') || (p.rq?.[1] || '') !== (talkLang || '')) return false;
+  if (!p || (p.rq?.[0] || 'auto') !== (effect || 'auto') || (p.rq?.[1] || '') !== (talkLang || '') || (p.rq?.[2] || '') !== pictureId(ownPicture)) return false;
   return p.th === (theme ? String(theme).slice(0, 160) : u.theme);
 };
 const missedComposeReply = async (u) => {
@@ -335,6 +336,16 @@ async function callImage(theme, comp, background, fix = '') {
 }
 
 // ---- PNG コーデック＋クロマキー（純JS・依存なし。8bit / color type 2,6 / 非インタレース） ----
+const MAX_PIXELS = 2048 * 2048;
+// An uploaded picture is checked before anything is decoded: its header says how much memory it asks for.
+function pictureOk(b64) {
+  try {
+    const head = Buffer.from(String(b64).slice(0, 64), 'base64');
+    if (head.length < 24 || head.readUInt32BE(0) !== 0x89504e47) return false;
+    const w = head.readUInt32BE(16), h = head.readUInt32BE(20);
+    return w > 0 && h > 0 && w * h <= MAX_PIXELS;
+  } catch { return false; }
+}
 function decodePng(buf) {
   if (buf.length < 8 || buf.readUInt32BE(0) !== 0x89504e47) throw new Error('not png');
   let pos = 8, w = 0, h = 0, bitDepth = 0, colorType = 0, interlace = 0;
@@ -349,9 +360,11 @@ function decodePng(buf) {
     pos += 12 + len;
   }
   if (bitDepth !== 8 || interlace !== 0 || (colorType !== 2 && colorType !== 6)) throw new Error('unsupported png format');
+  if (!w || !h || w * h > MAX_PIXELS) throw new Error('png too large');
   const bpp = colorType === 6 ? 4 : 3;
-  const raw = inflateSync(Buffer.concat(idats));
   const stride = w * bpp;
+  const raw = inflateSync(Buffer.concat(idats), { maxOutputLength: (stride + 1) * h + 1024 });
+  if (raw.length < (stride + 1) * h) throw new Error('png too short');
   const out = new Uint8Array(w * h * 4);
   let p = 0;
   let prev = new Uint8Array(stride);
@@ -1808,7 +1821,10 @@ function buildServer() {
       return { content: [{ type: 'text', text: 'テーマがまだ決まってないみたい。先に start_create でテーマを聞いてね。' }], structuredContent: { needsTheme: true, card: await packCard(u) } };
     }
     if (stillWorking(u)) return busyReply(u, 'compose_ar');
-    const asked = { theme: theme || u.theme, effect, talkLang };
+    if (ownPicture && !pictureOk(ownPicture)) {
+      return { content: [{ type: 'text', text: 'That picture cannot be used. Send a PNG of at most 2048 by 2048 pixels. / その絵は使えませんでした。2048×2048 ピクセルまでの PNG にしてください。' }], structuredContent: { badPicture: true, card: await packCard(u) } };
+    }
+    const asked = { theme: theme || u.theme, effect, talkLang, ownPicture };
     if (missedReply(u, card, asked)) return missedComposeReply(u);
     const claim = await claimWork(u);
     if (claim !== 'claimed') return claim === 'busy' ? busyReply(u, 'compose_ar') : retryReply();
@@ -1827,7 +1843,7 @@ function buildServer() {
             let pick = null;
             if (found?.sheet) pick = await readSheet(pic, found.views.length).catch((e) => { console.log('[AR] sheet-read-failed', JSON.stringify({ error: String(e?.message || e) })); return null; });
             own = ownArt(pic, key.ch, scaleRgba, found, pick);
-            if (own) own.keyCh = key.ch;
+            if (own) { own.keyCh = key.ch; own.sheet = !!found?.sheet; own.read = !!pick; }
             console.log('[AR] own-picture', JSON.stringify({ exact: !!own, views: own?.views || 0, back: !!own?.back, pick: pick ? [pick.front, pick.back] : null }));
           } catch (e) { console.log('[AR] own-art-failed', JSON.stringify({ error: String(e?.message || e) })); }
         }
@@ -1928,7 +1944,7 @@ function buildServer() {
       u.usage = usage;
       const ck = proofJob ? await proofJob : null;
       const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-      const arTok = packTok({ rq: [effect || 'auto', talkLang || ''], ck: ck || undefined, sc: check ? { ok: check.ok, score: check.score, issues: (check.issues || []).slice(0, 3), redrawn, before: check.before ? { score: check.before.score } : null } : undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
+      const arTok = packTok({ rq: [effect || 'auto', talkLang || '', pictureId(ownPicture)], ck: ck || undefined, sc: check ? { ok: check.ok, score: check.score, issues: (check.issues || []).slice(0, 3), redrawn, before: check.before ? { score: check.before.score } : null } : undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
       u.arTok = arTok; u.arId = arId; u.certTok = null; u.composedAt = Date.now(); u.composedSeq = (u.seq || 0) + 1; u.held = (check && !check.ok) || comp.ip || ownPicture ? { s: check && !check.ok ? check.score : null, i: check && !check.ok ? (check.issues || []).slice(0, 3) : [], r: comp.ip || (ownPicture ? ((talkLang || langOf(th)) === 'en' ? 'the picture you uploaded' : 'アップロードした絵') : null) } : null; releaseWork(u);
       u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
       const spell = spellOf(comp.effect);
@@ -1946,7 +1962,7 @@ function buildServer() {
       console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
       return {
         content: [{ type: 'text', text: en ? textEn : text }],
-        structuredContent: { selfCheckProof: ck || undefined, preview: faces.neutral || null, glb: glbUrl || null, lang: talkLang || langOf(th), title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: await packCard(u) },
+        structuredContent: { selfCheckProof: ck || undefined, preview: faces.neutral || null, glb: glbUrl || null, lang: talkLang || langOf(th), ownArt: ownPicture ? (own ? { exact: true, sheet: own.sheet, read: own.read, ownBack: !!own.back } : { exact: false }) : undefined, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: await packCard(u) },
       };
     } catch (e) {
       releaseWork(u); await packCard(u).catch(() => {});

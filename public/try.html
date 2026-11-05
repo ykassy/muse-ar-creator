@@ -159,6 +159,9 @@ const T = ja ? {
   code: (c) => `Muse でコネクターを追加した人は「Join ${c}」と話すと、チャットで遊べます。`,
   noteL: '使ってみてどうでしたか（任意・ひとこと。個人情報は書かないでください）', noteB: '送る', noteDone: 'ありがとうございます。',
   seeAll: 'これまでの40体を見る（待ち時間なしで3Dで回して話せます）',
+  ownBoth: '正面も背中も、あなたの絵', ownFront: '正面はあなたの絵。後ろは Muse Image が描いた', ownEdit: 'Muse Image があなたの絵を保って背景を外した',
+  ownNoBack: '正面はあなたの絵。背中の図が見つからず、後ろは Muse Image が描いた',
+  ownGuess: 'Spark が三面図を読めなかったので、左の図を正面、右の図を背中にした。回して確かめてください',
   noModel: '今回はモデルを作れませんでした。もう一度試すか、ギャラリーの40体をどうぞ：/gallery',
   full: 'いま混み合っています。少しあとで試すか、待たずに触れるギャラリーの40体をどうぞ：/gallery', busy: 'まだ作っています…', fail: '止まってしまいました。もう一度押してください。', pubFail: '公開に失敗しました。もう一度押してください。',
   foot: '作るたびに有料の API を少し使うので、回数の上限があります。作ったキャラの権利の確認はしていません。HACK IT INC. が Meta Global AI Developer Hackathon のために作りました。',
@@ -193,6 +196,9 @@ const T = ja ? {
   code: (c) => `With the connector added, say "Join ${c}" in Muse to play it in the chat.`,
   noteL: 'How was it? (optional, one line, no personal details)', noteB: 'Send', noteDone: 'Thank you.',
   seeAll: 'See the 40 so far: turn them in 3D and talk to them, with no wait',
+  ownBoth: 'Front and back: your own drawing', ownFront: 'Front: your own drawing. Muse Image drew the back', ownEdit: 'Muse Image kept your drawing and removed what was around it',
+  ownNoBack: 'Front: your own drawing. No back view was found, so Muse Image drew the back',
+  ownGuess: 'Spark could not read the sheet, so the left view is the front and the right view the back. Turn it to check',
   noModel: 'The model could not be finished this time. Try again, or turn the 40 in the gallery: /gallery',
   full: 'Too many people are making characters right now. Try again in a while, or turn the 40 in the gallery with no wait: /gallery', busy: 'Still making it…', fail: 'That stopped. Press the button again.', pubFail: 'Publishing failed. Press the button again.',
   foot: 'Each character uses a little paid API credit, so there are rate limits. Rights are not checked. Built by HACK IT INC. for the Meta Global AI Developer Hackathon.',
@@ -206,11 +212,15 @@ T.chips.forEach((c) => { const b = document.createElement('button'); b.type = 'b
 T.steps.forEach((s) => { const li = document.createElement('li'); li.textContent = s; $('waitList').append(li); });
 
 let card = null, asked = null, nickname = '', rid = 1, ticker = null, projectId = null, ownPicture = null;
+let pictureJob = 0;
 async function takePicture(file) {
+  const job = ++pictureJob;
   ownPicture = null; $('ownPic').hidden = true;
-  if (!file) return;
+  if (!file) { $('go').disabled = false; return; }
+  $('go').disabled = true;
   try {
     const bmp = await createImageBitmap(file);
+    if (job !== pictureJob) return;
     // Large enough to keep each view of a sheet sharp, small enough for one request.
     for (const side of [1536, 1024, 768]) {
       const k = Math.min(1, side / Math.max(bmp.width, bmp.height));
@@ -223,7 +233,8 @@ async function takePicture(file) {
       if (ownPicture.length < 3_400_000) break;
     }
     $('ownPic').hidden = false;
-  } catch { showErr(T.fail); }
+  } catch { if (job === pictureJob) showErr(T.fail); }
+  if (job === pictureJob) $('go').disabled = false;
 }
 $('own').addEventListener('change', () => takePicture($('own').files[0]));
 // A test sheet, for anyone who wants to see this without a sheet of their own.
@@ -293,7 +304,7 @@ $('start').addEventListener('submit', async (e) => {
     const request = JSON.stringify([theme, nickname, $('spell').value, ownPicture ? ownPicture.length : 0, ownPicture ? ownPicture.slice(-64) : '']);
     if (request !== asked || !card) { card = null; asked = null; await call('start_create', { nickname, theme, agreed: true }); asked = request; }
     const s = await patient('compose_ar', { theme, effect: $('spell').value, ...(ownPicture ? { ownPicture } : {}) });
-    if (!s.hasGlb) throw new Error(T.noModel);
+    if (!s.hasGlb) { asked = null; throw new Error(T.noModel); }
     stopWait(); showMade(s);
   } catch (err) {
     stopWait(); $('start').hidden = false; $('go').disabled = false; showErr(err.message || T.fail);
@@ -315,7 +326,9 @@ function showMade(s) {
   const check = !c ? '' : c.redrawn && c.before ? T.redrawn(c.before.score, c.score) : T.checked(c.score);
   const u = s.usage || {};
   const used = [u.s && `Muse Spark ${u.s.total} tokens`, u.i && `Muse Image ${u.i.total} tokens`, u.a && 'SAM 3.1'].filter(Boolean).join(', ');
-  $('facts').textContent = [check, `${T.spell}: ${T.spells[['auto', 'lightning', 'fire', 'frozen-lightning', 'starfall', 'light'].indexOf(s.effect)] || s.effect}`, used].filter(Boolean).join(' / ');
+  const o = s.ownArt;
+  const own = !o ? '' : !o.exact ? T.ownEdit : !o.sheet ? T.ownFront : !o.read ? T.ownGuess : o.ownBack ? T.ownBoth : T.ownNoBack;
+  $('facts').textContent = [own, check, `${T.spell}: ${T.spells[['auto', 'lightning', 'fire', 'frozen-lightning', 'starfall', 'light'].indexOf(s.effect)] || s.effect}`, used].filter(Boolean).join(' / ');
   $('made').hidden = false;
 }
 

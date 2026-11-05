@@ -196,4 +196,12 @@ slowRefusal = 0;
 assert.ok(raceA.composing || raceA.theme === 'first theme', 'first request keeps its theme');
 assert.ok(raceB.composing || raceB.theme === 'second theme', 'second request keeps its theme');
 
+// A picture that asks for too much memory is refused before it is decoded. Only the header is needed.
+const huge = Buffer.alloc(33);
+huge.writeUInt32BE(0x89504e47, 0); huge.writeUInt32BE(0x0d0a1a0a, 4); huge.writeUInt32BE(13, 8); huge.write('IHDR', 12, 'ascii');
+huge.writeUInt32BE(100000, 16); huge.writeUInt32BE(100000, 20);
+const big0 = await call(A, 'start_create', { nickname: 'big', theme: 'a big picture', agreed: true });
+assert.equal((await call(A, 'compose_ar', { nickname: 'big', ownPicture: huge.toString('base64'), card: big0.card })).badPicture, true);
+assert.equal((await call(A, 'compose_ar', { nickname: 'big', ownPicture: 'not a picture', card: big0.card })).badPicture, true);
+
 console.log('session checks passed');

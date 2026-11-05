@@ -58,7 +58,16 @@ export function findViews(img) {
   const views = found.filter((c) => c.area > biggest * 0.2 && (c.y1 - c.y0) > tall * 0.7).sort((a, b) => a.x0 - b.x0);
   const sheet = views.length >= 2;
   // One drawing can be several shapes (a floating hat, a separate tail): those stay with it.
-  const groups = sheet ? views.map((c) => [c]) : [found.filter((c) => c.area > biggest * 0.002)];
+  const parts = found.filter((c) => c.area > biggest * 0.002);
+  if (!sheet) return { sheet, label, views: [parts] };
+  // On a sheet a part joins the view it sits over. A caption under a view does not.
+  const groups = views.map((c) => [c]);
+  for (const c of parts) {
+    if (views.includes(c)) continue;
+    const mid = (c.x0 + c.x1) / 2;
+    const at = views.findIndex((v) => mid >= v.x0 && mid <= v.x1 && c.y1 <= v.y1 && c.y0 >= v.y0 - (v.y1 - v.y0) * 0.3);
+    if (at >= 0) groups[at].push(c);
+  }
   return { sheet, label, views: groups };
 }
 
