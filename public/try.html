@@ -135,7 +135,7 @@ const T = ja ? {
   ownL: '自分のキャラの絵や三面図（なくても可）',
   sample: '手元にない人は、試験用の三面図で試す',
   sampleTheme: 'カキちゃん、商店街の元気な柿のマスコット',
-  ownHelp: '白地の絵なら、あなたの絵そのものを使います。三面図なら、正面も背中もあなたの絵です。写真は Muse Image がデザインを保って背景だけを外します。上の欄には名前や性格を書いてください。公開の前に、権利があるかを確認します。',
+  ownHelp: '白地の絵なら、あなたの絵そのものを使います。各面が離れて並んだ白地の三面図なら、正面も背中もあなたの絵です。離れた小物が抜けることがあるので、公開の前に回して確かめてください。写真は Muse Image がデザインを保って背景だけを外します。上の欄には名前や性格を書いてください。公開の前に、権利があるかを確認します。',
   themePh: '例：夏祭りの眠そうな金魚',
   chips: ['焚き火の精霊', '月夜のたぬき', '商店街のコロッケくん', '雨の日のカタツムリ'],
   nickL: '呼び名（なくても可）', spellL: '魔法',
@@ -172,7 +172,7 @@ const T = ja ? {
   ownL: 'Your own character: a picture or a three-view sheet (optional)',
   sample: 'No sheet at hand? Use our test sheet',
   sampleTheme: 'Kaki-chan, a cheerful persimmon mascot of a shopping street',
-  ownHelp: 'On a clean white page your own pixels are used, and a sheet gives both the front and the back. A photo goes through Muse Image, which keeps the design and removes what is around it. Use the box above for its name and personality. Before publishing, you are asked whether you hold the rights.',
+  ownHelp: 'On a clean white page your own drawing is used. A sheet with its views side by side gives both the front and the back. Small separate parts can drop out, so turn it to check before publishing. A photo goes through Muse Image, which keeps the design and removes what is around it. Use the box above for its name and personality. Before publishing, you are asked whether you hold the rights.',
   themePh: 'e.g. a sleepy goldfish from a summer festival',
   chips: ['a bonfire spirit', 'a moonlit tanuki', 'a croquette from a shopping street', 'a snail on a rainy day'],
   nickL: 'Your nickname (optional)', spellL: 'Spell',
@@ -213,12 +213,14 @@ T.steps.forEach((s) => { const li = document.createElement('li'); li.textContent
 
 let card = null, asked = null, nickname = '', rid = 1, ticker = null, projectId = null, ownPicture = null;
 let pictureJob = 0;
-async function takePicture(file) {
+async function takePicture(source) {
   const job = ++pictureJob;
   ownPicture = null; $('ownPic').hidden = true;
-  if (!file) { $('go').disabled = false; return; }
+  if (!source) { $('go').disabled = false; return; }
   $('go').disabled = true;
   try {
+    const file = await source;
+    if (job !== pictureJob) return;
     const bmp = await createImageBitmap(file);
     if (job !== pictureJob) return;
     // Large enough to keep each view of a sheet sharp, small enough for one request.
@@ -240,8 +242,8 @@ $('own').addEventListener('change', () => takePicture($('own').files[0]));
 // A test sheet, for anyone who wants to see this without a sheet of their own.
 $('sample').onclick = async () => {
   $('own').value = '';
-  await takePicture(await (await fetch('/kaki-sheet.png')).blob());
   if (!$('theme').value) $('theme').value = T.sampleTheme;
+  await takePicture(fetch('/kaki-sheet.png').then((r) => r.blob()));
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const showErr = (m) => { $('err').textContent = m || ''; $('err').hidden = !m; };

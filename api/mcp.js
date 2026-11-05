@@ -214,7 +214,7 @@ const missedComposeReply = async (u) => {
     ? `This character was already finished, so nothing new was drawn (the last reply did not reach you). "${p.ti}"\n${p.tx}\nName: ${p.nm} / Personality: ${p.ps}\nSpell: ${spell.id}${hold}`
     : `このキャラはもうできていたので、新しくは描かなかったよ（前の返事が届かなかったみたい）。「${p.ti}」\n${p.tx}\nキャラ名：${p.nm}／性格：${p.ps}\n魔法：${spell.label}${holdJa}`;
   console.log('[AR] compose-resumed', JSON.stringify({ nickname: u.nickname, arId: u.arId }));
-  return { content: [{ type: 'text', text }], structuredContent: { resumed: true, preview: p.f?.neutral || null, glb: p.g || null, lang: p.lg, title: p.ti, text: p.tx, color: p.c, effect: p.e, characterName: p.nm, persona: p.ps, theme: p.th, usedModel: !!p.us, usage: p.us || null, selfCheck: p.sc || null, hasGlb: !!p.g, hasImage: !!p.im, card: await packCard(u) } };
+  return { content: [{ type: 'text', text }], structuredContent: { resumed: true, preview: p.f?.neutral || null, glb: p.g || null, lang: p.lg, ownArt: p.oa, title: p.ti, text: p.tx, color: p.c, effect: p.e, characterName: p.nm, persona: p.ps, theme: p.th, usedModel: !!p.us, usage: p.us || null, selfCheck: p.sc || null, hasGlb: !!p.g, hasImage: !!p.im, card: await packCard(u) } };
 };
 const cardArg = z.string().max(20000).optional().describe('前のツールの structuredContent にある card（HC3. で始まる短い文字列）。1文字も変えずにそのまま入れる');
 // A compose can outlast a dropped call. These replies say what is still running, so Muse waits
@@ -1944,7 +1944,8 @@ function buildServer() {
       u.usage = usage;
       const ck = proofJob ? await proofJob : null;
       const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-      const arTok = packTok({ rq: [effect || 'auto', talkLang || '', pictureId(ownPicture)], ck: ck || undefined, sc: check ? { ok: check.ok, score: check.score, issues: (check.issues || []).slice(0, 3), redrawn, before: check.before ? { score: check.before.score } : null } : undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
+      const ownArtNote = ownPicture ? (own ? { exact: true, sheet: own.sheet, read: own.read, ownBack: !!own.back } : { exact: false }) : undefined;
+      const arTok = packTok({ rq: [effect || 'auto', talkLang || '', pictureId(ownPicture)], oa: ownArtNote, ck: ck || undefined, sc: check ? { ok: check.ok, score: check.score, issues: (check.issues || []).slice(0, 3), redrawn, before: check.before ? { score: check.before.score } : null } : undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
       u.arTok = arTok; u.arId = arId; u.certTok = null; u.composedAt = Date.now(); u.composedSeq = (u.seq || 0) + 1; u.held = (check && !check.ok) || comp.ip || ownPicture ? { s: check && !check.ok ? check.score : null, i: check && !check.ok ? (check.issues || []).slice(0, 3) : [], r: comp.ip || (ownPicture ? ((talkLang || langOf(th)) === 'en' ? 'the picture you uploaded' : 'アップロードした絵') : null) } : null; releaseWork(u);
       u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
       const spell = spellOf(comp.effect);
@@ -1962,7 +1963,7 @@ function buildServer() {
       console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
       return {
         content: [{ type: 'text', text: en ? textEn : text }],
-        structuredContent: { selfCheckProof: ck || undefined, preview: faces.neutral || null, glb: glbUrl || null, lang: talkLang || langOf(th), ownArt: ownPicture ? (own ? { exact: true, sheet: own.sheet, read: own.read, ownBack: !!own.back } : { exact: false }) : undefined, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: await packCard(u) },
+        structuredContent: { selfCheckProof: ck || undefined, preview: faces.neutral || null, glb: glbUrl || null, lang: talkLang || langOf(th), ownArt: ownArtNote, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: await packCard(u) },
       };
     } catch (e) {
       releaseWork(u); await packCard(u).catch(() => {});
