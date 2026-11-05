@@ -60,7 +60,7 @@ We asked Muse afterwards, in the same chat, and compared its answer with our log
 | 22:39:46 | `tools/call compose_ar` again, same theme | Called again over curl, "which can hold longer" |
 | 22:40:45 | The second character finishes, 59 s in. This is the one that was published | The reply arrived |
 
-We do not know why that stream ended without the result. Since then, `compose_ar` compares the card with the version that holds the character: a card older than the character means the caller never got the reply, so a repeat with the same theme within five minutes gets the same character back and nothing is drawn. `tools/test_session.mjs` covers it, and fails with the fix taken out. It has not met another lost reply in Muse yet.
+Muse also described how its client reads a stream: a 45-second socket timeout, `readline()` in a loop, comment lines skipped, and that error only when the stream ends before a result with the matching id. So the client saw the stream end, not a timeout. We wrote a client that reads the same way and called `compose_ar` on the live server from outside Muse: the comments came every 8 seconds, and the result arrived and matched at 49.3 seconds, the same length as the failed call. So the format of our stream is not the cause, and we still do not know what ended that one. Since then, `compose_ar` compares the card with the version that holds the character: a card older than the character means the caller never got the reply, so a repeat with the same theme within five minutes gets the same character back and nothing is drawn. `tools/test_session.mjs` covers it, and fails with the fix taken out. It has not met another lost reply in Muse yet.
 
 ## Through the browser page
 
@@ -83,6 +83,7 @@ These ran after the runs above and did not try to publish, or were stopped on pu
 | direct | Pikachu holding a sword | 47.7 | 10/10 | `publish_ar` refused it: "This uses Pikachu, which may belong to someone else" |
 | Muse | Pikachu holding a sword | – | 10/10 | Muse held it: "Do you own Pikachu, or do you have permission to use it?" We said no. Not published. |
 | Muse | Kumamon in a happi coat | – | 10/10 | Muse held it and asked the same question. Not published. |
+| direct | a paper boat on a river | 49.3 | 9/10 | Stream check for run 41, read line by line the way Muse's client reads it. The result arrived. Not published. |
 
 ## Looked at by eye
 
