@@ -188,7 +188,7 @@ T.chips.forEach((c) => { const b = document.createElement('button'); b.type = 'b
 ['auto', 'lightning', 'fire', 'frozen-lightning', 'starfall', 'light'].forEach((v, i) => { const o = document.createElement('option'); o.value = v; o.textContent = T.spells[i]; $('spell').append(o); });
 T.steps.forEach((s) => { const li = document.createElement('li'); li.textContent = s; $('waitList').append(li); });
 
-let card = null, nickname = '', rid = 1, ticker = null, projectId = null;
+let card = null, asked = null, nickname = '', rid = 1, ticker = null, projectId = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const showErr = (m) => { $('err').textContent = m || ''; $('err').hidden = !m; };
 const startWait = (line, list) => {
@@ -212,15 +212,28 @@ async function call(name, args) {
   const msg = JSON.parse(data || text);
   if (msg.error) throw new Error(msg.error.message);
   const r = msg.result || {};
-  if (r.isError) throw new Error(T.full);
+  if (r.isError) {
+    const why = r.content?.[0]?.text || '';
+    throw Object.assign(new Error(/混み合|お休み/.test(why) ? T.full : (why || T.fail)), { final: true });
+  }
   const s = r.structuredContent || {};
   if (s.card) card = s.card;
   return s;
 }
 // Same call again while the server is busy or its saved state is briefly out of reach.
+// A reply lost on the way is treated the same: the same call with the same card finds the work
+// that finished, instead of starting a second character.
 async function patient(name, args) {
-  for (let i = 0; i < 12; i++) {
-    const s = await call(name, { ...args, nickname, card });
+  const sent = card;
+  for (let i = 0, lost = 0; i < 12; i++) {
+    let s;
+    try { s = await call(name, { ...args, nickname, card: sent }); }
+    catch (e) {
+      if (e.final || ++lost > 3) throw e;
+      $('waitLine').textContent = T.busy;
+      await sleep(5000);
+      continue;
+    }
     if (!s.composing && !s.retryLater) return s;
     $('waitLine').textContent = T.busy;
     await sleep(s.composing ? 15000 : 4000);
@@ -234,7 +247,8 @@ $('start').addEventListener('submit', async (e) => {
   nickname = $('nick').value.trim() || 'Guest';
   $('go').disabled = true; $('start').hidden = true; startWait(T.wait, true);
   try {
-    await call('start_create', { nickname, theme, agreed: true });
+    const request = JSON.stringify([theme, nickname, $('spell').value]);
+    if (request !== asked) { card = null; await call('start_create', { nickname, theme, agreed: true }); asked = request; }
     const s = await patient('compose_ar', { theme, effect: $('spell').value });
     if (!s.hasGlb) throw new Error(T.full);
     stopWait(); showMade(s);

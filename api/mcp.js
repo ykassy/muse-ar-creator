@@ -191,14 +191,17 @@ async function storeAsset(kind, buf, name) {
   } catch { return null; }
 }
 // In run 41 Muse's client reported that the event stream ended before the result, and Muse called
-// compose_ar again, which drew a second character. The saved versions can tell: a card older than
-// the version that holds the character means the caller never got that reply. So a repeat with the
-// same theme, soon after, gets the same character back instead of a new drawing.
+// compose_ar again, which drew a second character. A card older than the version that holds the
+// character may mean the caller never got that reply, so a repeat of the same request (same theme,
+// spell and language, within five minutes, not yet published) gets that character back instead of a
+// new drawing. A caller with the newest card, or with a different request, still gets a new one.
 const seqOfCard = (card) => { const m = /^HC3\.[a-z0-9]{4,14}\.(\d{1,4})\./.exec((card || '').trim()); return m ? +m[1] : null; };
-const missedReply = (u, card, theme) => {
+const missedReply = (u, card, { theme, effect, talkLang }) => {
   const seen = seqOfCard(card);
   if (seen === null || !u.arTok || u.hackarsUrl || !(u.composedSeq > seen) || Date.now() - (u.composedAt || 0) > 300_000) return false;
-  return readTok(u.arTok)?.th === (theme ? String(theme).slice(0, 160) : u.theme);
+  const p = readTok(u.arTok);
+  if (!p || (effect && effect !== 'auto' && effect !== p.e) || (talkLang && talkLang !== p.lg)) return false;
+  return p.th === (theme ? String(theme).slice(0, 160) : u.theme);
 };
 const missedComposeReply = async (u) => {
   const p = readTok(u.arTok) || {};
@@ -209,7 +212,7 @@ const missedComposeReply = async (u) => {
     ? `This character was already finished, so nothing new was drawn (the last reply did not reach you). "${p.ti}"\n${p.tx}\nName: ${p.nm} / Personality: ${p.ps}\nSpell: ${spell.id}${hold}`
     : `このキャラはもうできていたので、新しくは描かなかったよ（前の返事が届かなかったみたい）。「${p.ti}」\n${p.tx}\nキャラ名：${p.nm}／性格：${p.ps}\n魔法：${spell.label}${holdJa}`;
   console.log('[AR] compose-resumed', JSON.stringify({ nickname: u.nickname, arId: u.arId }));
-  return { content: [{ type: 'text', text }], structuredContent: { resumed: true, preview: p.f?.neutral || null, glb: p.g || null, lang: p.lg, title: p.ti, text: p.tx, color: p.c, effect: p.e, characterName: p.nm, persona: p.ps, theme: p.th, usedModel: true, hasGlb: !!p.g, card: await packCard(u) } };
+  return { content: [{ type: 'text', text }], structuredContent: { resumed: true, preview: p.f?.neutral || null, glb: p.g || null, lang: p.lg, title: p.ti, text: p.tx, color: p.c, effect: p.e, characterName: p.nm, persona: p.ps, theme: p.th, usedModel: !!p.us, usage: p.us || null, selfCheck: p.sc || null, hasGlb: !!p.g, hasImage: !!p.im, card: await packCard(u) } };
 };
 const cardArg = z.string().max(20000).optional().describe('前のツールの structuredContent にある card（HC3. で始まる短い文字列）。1文字も変えずにそのまま入れる');
 // A compose can outlast a dropped call. These replies say what is still running, so Muse waits
@@ -1753,10 +1756,12 @@ function buildServer() {
       return { content: [{ type: 'text', text: 'テーマがまだ決まってないみたい。先に start_create でテーマを聞いてね。' }], structuredContent: { needsTheme: true, card: await packCard(u) } };
     }
     if (stillWorking(u)) return busyReply(u, 'compose_ar');
-    if (missedReply(u, card, theme)) return missedComposeReply(u);
+    const asked = { theme: theme || u.theme, effect, talkLang };
+    if (missedReply(u, card, asked)) return missedComposeReply(u);
     const claim = await claimWork(u);
     if (claim !== 'claimed') return claim === 'busy' ? busyReply(u, 'compose_ar') : retryReply();
-    if (missedReply(u, card, theme)) { releaseWork(u); return missedComposeReply(u); }   // the claim may have brought in a compose that finished meanwhile
+    if (missedReply(u, card, asked)) { releaseWork(u); return missedComposeReply(u); }   // the claim may have brought in a compose that finished meanwhile
+    u.theme = String(asked.theme).slice(0, 160);   // a lost race can bring in another request's theme; this call keeps its own
     try {
       const th = u.theme;
       let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [], transparentApplied = false;
@@ -1858,7 +1863,7 @@ function buildServer() {
       u.usage = usage;
       const ck = proofJob ? await proofJob : null;
       const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-      const arTok = packTok({ ck: ck || undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
+      const arTok = packTok({ ck: ck || undefined, sc: check ? { ok: check.ok, score: check.score, issues: (check.issues || []).slice(0, 3), redrawn, before: check.before ? { score: check.before.score } : null } : undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
       u.arTok = arTok; u.arId = arId; u.certTok = null; u.composedAt = Date.now(); u.composedSeq = (u.seq || 0) + 1; u.held = (check && !check.ok) || comp.ip ? { s: check && !check.ok ? check.score : null, i: check && !check.ok ? (check.issues || []).slice(0, 3) : [], r: comp.ip || null } : null; releaseWork(u);
       u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
       const spell = spellOf(comp.effect);

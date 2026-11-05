@@ -172,4 +172,26 @@ assert.equal((await call(A, 'compose_ar', { nickname: 'lost', theme: 'a lost rep
 assert.notEqual((await call(B, 'compose_ar', { nickname: 'lost', card: lost1.card })).resumed, true);
 assert.notEqual((await call(A, 'compose_ar', { nickname: 'lost', theme: 'a new theme', card: lost0.card })).resumed, true);
 
+// Same card, but not the same request: a different spell is a new character, not the old one.
+const spell0 = await call(A, 'start_create', { nickname: 'spell', theme: 'a spell test', agreed: true });
+const spell1 = await call(A, 'compose_ar', { nickname: 'spell', effect: 'fire', card: spell0.card });
+const spell2 = await call(B, 'compose_ar', { nickname: 'spell', effect: 'light', card: spell0.card });
+assert.notEqual(spell2.resumed, true, 'another spell is another request');
+assert.equal(spell2.effect, 'light');
+assert.equal(spell1.effect, 'fire');
+const spell3 = await call(A, 'compose_ar', { nickname: 'spell', effect: 'light', card: spell0.card });
+assert.equal(spell3.resumed, true, 'the same spell again is a repeat');
+assert.deepEqual(spell3.selfCheck, null);   // the template has no check; the field is there as in a normal reply
+
+// Two requests from one card: losing the race must not swap this call's theme for the other's.
+slowRefusal = 100;
+const race0 = await call(A, 'start_create', { nickname: 'race', theme: 'first theme', agreed: true });
+const [raceA, raceB] = await Promise.all([
+  call(A, 'compose_ar', { nickname: 'race', theme: 'first theme', card: race0.card }),
+  call(B, 'compose_ar', { nickname: 'race', theme: 'second theme', card: race0.card }),
+]);
+slowRefusal = 0;
+assert.ok(raceA.composing || raceA.theme === 'first theme', 'first request keeps its theme');
+assert.ok(raceB.composing || raceB.theme === 'second theme', 'second request keeps its theme');
+
 console.log('session checks passed');
