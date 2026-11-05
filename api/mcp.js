@@ -200,7 +200,7 @@ const missedReply = (u, card, { theme, effect, talkLang }) => {
   const seen = seqOfCard(card);
   if (seen === null || !u.arTok || u.hackarsUrl || !(u.composedSeq > seen) || Date.now() - (u.composedAt || 0) > 300_000) return false;
   const p = readTok(u.arTok);
-  if (!p || (effect && effect !== 'auto' && effect !== p.e) || (talkLang && talkLang !== p.lg)) return false;
+  if (!p || (p.rq?.[0] || 'auto') !== (effect || 'auto') || (p.rq?.[1] || '') !== (talkLang || '')) return false;
   return p.th === (theme ? String(theme).slice(0, 160) : u.theme);
 };
 const missedComposeReply = async (u) => {
@@ -1863,7 +1863,7 @@ function buildServer() {
       u.usage = usage;
       const ck = proofJob ? await proofJob : null;
       const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
-      const arTok = packTok({ ck: ck || undefined, sc: check ? { ok: check.ok, score: check.score, issues: (check.issues || []).slice(0, 3), redrawn, before: check.before ? { score: check.before.score } : null } : undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
+      const arTok = packTok({ rq: [effect || 'auto', talkLang || ''], ck: ck || undefined, sc: check ? { ok: check.ok, score: check.score, issues: (check.issues || []).slice(0, 3), redrawn, before: check.before ? { score: check.before.score } : null } : undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
       u.arTok = arTok; u.arId = arId; u.certTok = null; u.composedAt = Date.now(); u.composedSeq = (u.seq || 0) + 1; u.held = (check && !check.ok) || comp.ip ? { s: check && !check.ok ? check.score : null, i: check && !check.ok ? (check.issues || []).slice(0, 3) : [], r: comp.ip || null } : null; releaseWork(u);
       u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
       const spell = spellOf(comp.effect);

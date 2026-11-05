@@ -182,6 +182,8 @@ assert.equal(spell1.effect, 'fire');
 const spell3 = await call(A, 'compose_ar', { nickname: 'spell', effect: 'light', card: spell0.card });
 assert.equal(spell3.resumed, true, 'the same spell again is a repeat');
 assert.deepEqual(spell3.selfCheck, null);   // the template has no check; the field is there as in a normal reply
+// Going back to "let it choose" is also a different request from the old card.
+assert.notEqual((await call(B, 'compose_ar', { nickname: 'spell', card: spell0.card })).resumed, true, 'auto is not the same request as light');
 
 // Two requests from one card: losing the race must not swap this call's theme for the other's.
 slowRefusal = 100;
