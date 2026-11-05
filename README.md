@@ -48,6 +48,12 @@ The quickest start is the page at https://hackathon-ar-creator.vercel.app/ (QR c
 
 If the model API is unavailable, composition falls back to a deterministic template, but publishing still needs a generated image and model; it fails honestly rather than substituting another URL.
 
+## What comes next
+
+- **Creators sign in.** Today the connector publishes under one account of ours. Next, a character made in Muse lands in its creator's own HACKAR:S account, so the plans the platform already has apply to it.
+- **A place where Japanese IP gathers**, with rights confirmed and characters reviewed. Not built.
+- **Glasses hardware.** The Ray-Ban Display app has only run in Meta's simulator.
+
 ## What was built when (hackathon rules)
 
 [`BUILT_DURING.md`](BUILT_DURING.md) lists each change with its date, including the pull requests in the closed-source HACKAR:S repository.
