@@ -9,7 +9,7 @@ import { createHmac, createHash, randomBytes } from 'node:crypto';
 import { inflateSync, deflateSync } from 'node:zlib';
 import { z } from 'zod';
 import { buildFittingGlb } from './glb.mjs';
-import { ownArt } from './sheet.mjs';
+import { findViews, ownArt } from './sheet.mjs';
 import { normAns, answerForms } from './answers.mjs';
 import { parseSamText, decodeOneBitMask } from './sam.mjs';
 
@@ -1413,6 +1413,26 @@ function keyForPicture(buf, theme) {
     return green > blue ? { name: 'blue', hex: '#0000FF', ch: 2 } : { name: 'green', hex: '#00FF00', ch: 1 };
   } catch { return keyFor(theme); }
 }
+// Sheets do not all run front, side, back. Spark looks at the page and says which view is which.
+async function readSheet(img, n) {
+  const k = Math.min(1, 1024 / Math.max(img.w, img.h));
+  const sm = k < 1 ? scaleRgba(img, Math.round(img.w * k), Math.round(img.h * k)) : img;
+  const dataUrl = 'data:image/png;base64,' + Buffer.from(encodePng(sm.w, sm.h, sm.rgba)).toString('base64');
+  const ask = `This image is a character design sheet: ${n} views of one character side by side, numbered 1 to ${n} from the left. Which view shows the front, with the full face toward us? Which view shows the back, seen from directly behind, with no face? Ignore any captions and judge by the drawing. Reply with ONE JSON object only: {"front": 1-${n}, "back": 1-${n}, or 0 if there is no back view}.`;
+  const res = await fetch(`${API_BASE}/chat/completions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${MODEL_API_KEY}`, 'content-type': 'application/json' },
+    signal: AbortSignal.timeout(20_000),
+    body: JSON.stringify({ model: SPARK_MODEL, temperature: 0, max_tokens: 1500, reasoning_effort: 'low', messages: [{ role: 'user', content: [{ type: 'text', text: ask }, { type: 'image_url', image_url: { url: dataUrl } }] }] }),
+  });
+  if (!res.ok) throw new Error(`sheet http ${res.status}`);
+  const data = await res.json();
+  const m = /\{[\s\S]*\}/.exec(String(data?.choices?.[0]?.message?.content || ''));
+  if (!m) throw new Error('sheet returned no json');
+  const j = JSON.parse(m[0]), front = Number(j.front), back = Number(j.back);
+  if (!(front >= 1 && front <= n) || !(back >= 0 && back <= n) || front === back) throw new Error('sheet returned no usable views');
+  return { front, back, usage: data?.usage || null };
+}
 function onWhiteSquare(b64) {
   const img = decodePng(Buffer.from(b64, 'base64')), S = 1024, k = Math.min(960 / img.w, 960 / img.h);
   const tw = Math.round(img.w * k), th = Math.round(img.h * k), small = scaleRgba(img, tw, th);
@@ -1803,11 +1823,13 @@ function buildServer() {
         if (ownPicture) {
           // A clean white page keeps its own pixels: no model draws the front, or the back of a sheet.
           try {
-            const buf = Buffer.from(ownPicture, 'base64'), key = keyForPicture(buf, th);
-            own = ownArt(decodePng(buf), key.ch, scaleRgba);
+            const buf = Buffer.from(ownPicture, 'base64'), key = keyForPicture(buf, th), pic = decodePng(buf), found = findViews(pic);
+            let pick = null;
+            if (found?.sheet) pick = await readSheet(pic, found.views.length).catch((e) => { console.log('[AR] sheet-read-failed', JSON.stringify({ error: String(e?.message || e) })); return null; });
+            own = ownArt(pic, key.ch, scaleRgba, found, pick);
             if (own) own.keyCh = key.ch;
+            console.log('[AR] own-picture', JSON.stringify({ exact: !!own, views: own?.views || 0, back: !!own?.back, pick: pick ? [pick.front, pick.back] : null }));
           } catch (e) { console.log('[AR] own-art-failed', JSON.stringify({ error: String(e?.message || e) })); }
-          console.log('[AR] own-picture', JSON.stringify({ exact: !!own, views: own?.views || 0, back: !!own?.back }));
         }
         const drawing = (own
           ? Promise.resolve({ b64: Buffer.from(encodePng(own.raw.w, own.raw.h, own.raw.rgba)).toString('base64'), remote: null, usage: null, type: 'image/png', keyCh: own.keyCh })

@@ -32,6 +32,12 @@ assert.deepEqual([...centre(art.back)], [...BLUE, 255], 'the back is the last vi
 assert.deepEqual([...art.raw.rgba.subarray(0, 4)], [0, 255, 0, 255], 'the raw copy stands on the key colour');
 assert.equal(art.cut.rgba[3], 0, 'around the character is transparent');
 
+// Spark's reading of the sheet wins over the usual order.
+const swapped = ownArt(sheet, 1, scale, findViews(sheet), { front: 3, back: 1 });
+assert.deepEqual([...centre(swapped.cut)], [...BLUE, 255], 'the view Spark calls the front is the front');
+assert.deepEqual([...centre(swapped.back)], [...RED, 255], 'the view Spark calls the back is the back');
+assert.equal(ownArt(sheet, 1, scale, findViews(sheet), { front: 1, back: 0 }).back, null, 'no back view: the back is drawn as usual');
+
 // One drawing with a small floating part stays one drawing, and the part stays with it.
 const single = ownArt(page(200, 200, [[50, 60, 150, 180, RED], [90, 20, 110, 40, BLUE]]), 1, scale);
 assert.equal(single.views, 1);

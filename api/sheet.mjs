@@ -95,13 +95,14 @@ function onKey(cut, ch) {
   return { w: cut.w, h: cut.h, rgba: out };
 }
 
-// front and back are the character's own pixels. The middle view of a sheet is not used: the model is
-// a plate, so it has no side to put it on.
-export function ownArt(img, keyChannel, scaleRgba) {
-  const found = findViews(img);
+// front and back are the character's own pixels. Other views of a sheet are not used: the model is a
+// plate, so it has no side to put them on. `pick` says which view is which (numbered from 1, back 0
+// when there is none). Without it the usual order is assumed: front on the left, back on the right.
+export function ownArt(img, keyChannel, scaleRgba, found = findViews(img), pick = null) {
   if (!found) return null;
   const crops = found.views.map((g) => cropView(img, found.label, g));
-  const front = crops[0], back = found.sheet ? crops[crops.length - 1] : null;
+  const front = crops[(pick?.front || 1) - 1] || crops[0];
+  const back = !found.sheet ? null : pick ? (crops[pick.back - 1] || null) : crops[crops.length - 1];
   const k = Math.min(FILL / Math.max(front.w, front.h, back?.w || 0, back?.h || 0), 2);
   const cut = onSquare(front, k, scaleRgba);
   return { cut, raw: onKey(cut, keyChannel), back: back ? onSquare(back, k, scaleRgba) : null, views: crops.length };
