@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MOSHI MOSHI — Make a character</title>
+<style>
+  :root{--bg:#0e0e14;--card:#17171f;--ink:#f2f2f5;--sub:#c9c9d2;--dim:#8a8a96;--key:#ffcf5c;--link:#8fc7ff;--line:#2c2c3a;--bad:#ff9d8a}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:var(--bg);color:var(--ink);font-family:-apple-system,'Hiragino Sans',sans-serif;padding:32px 16px 48px}
+  main{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+  h1{margin:0;font-size:32px;line-height:1.2}
+  h2{margin:0;font-size:22px;line-height:1.3}
+  .tag{color:var(--key);font-weight:800;letter-spacing:.08em;font-size:13px}
+  p{margin:0;line-height:1.7;color:var(--sub)}
+  a{color:var(--link);overflow-wrap:anywhere}
+  .card{background:var(--card);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px}
+  label{font-weight:700;font-size:15px;display:block;margin-bottom:6px}
+  input,select,textarea{width:100%;font:inherit;font-size:16px;color:var(--ink);background:#0f0f16;border:1px solid var(--line);border-radius:10px;padding:12px}
+  textarea{min-height:64px;resize:vertical}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--key);outline-offset:1px}
+  button{font:inherit;font-weight:800;font-size:16px;border:0;border-radius:12px;padding:14px 18px;cursor:pointer;background:var(--key);color:#1b1608}
+  button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:600}
+  button:disabled{opacity:.5;cursor:default}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chips button{background:#26263a;color:var(--ink);font-weight:500;font-size:14px;padding:7px 12px;border-radius:999px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:480px){.two{grid-template-columns:1fr}}
+  .foot{font-size:13px;color:var(--dim)}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .big{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums}
+  ul{margin:0;padding-left:20px;color:var(--sub);line-height:1.7}
+  .who{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .who img{width:150px;height:150px;object-fit:contain;flex:none;background:#26263a;border-radius:12px}
+  .who>div{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:6px}
+  .qr{width:180px;height:180px;background:#fff;border-radius:12px;padding:8px}
+  .warn{color:var(--bad)}
+  .open{display:block;text-align:center;text-decoration:none;font-weight:800;background:var(--key);color:#1b1608;border-radius:12px;padding:14px 18px}
+  code{background:#26263a;padding:2px 7px;border-radius:6px;color:#fff;overflow-wrap:anywhere}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <div class="tag"><a href="/" style="color:inherit;text-decoration:none">MOSHI MOSHI</a></div>
+  <h1 data-t="h1"></h1>
+  <p data-t="lead"></p>
+
+  <form class="card" id="start">
+    <div>
+      <label for="theme" data-t="themeL"></label>
+      <input id="theme" maxlength="160" required autocomplete="off">
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="two">
+      <div>
+        <label for="nick" data-t="nickL"></label>
+        <input id="nick" maxlength="40" autocomplete="off">
+      </div>
+      <div>
+        <label for="spell" data-t="spellL"></label>
+        <select id="spell"></select>
+      </div>
+    </div>
+    <p class="foot" data-t="consent"></p>
+    <button id="go" type="submit" data-t="go"></button>
+  </form>
+
+  <section class="card" id="wait" hidden>
+    <div class="big" id="clock">0:00</div>
+    <p id="waitLine"></p>
+    <ul id="waitList"></ul>
+  </section>
+
+  <section class="card" id="made" hidden>
+    <div class="who">
+      <img id="pic" alt="">
+      <div>
+        <h2 id="name"></h2>
+        <p id="persona"></p>
+        <p class="foot" id="facts"></p>
+      </div>
+    </div>
+    <p class="warn" id="stop" hidden></p>
+    <div class="row" id="madeBtns">
+      <button id="pub" type="button" data-t="pub"></button>
+      <button id="again" class="ghost" type="button" data-t="again"></button>
+    </div>
+  </section>
+
+  <section class="card" id="live" hidden>
+    <h2 data-t="liveH"></h2>
+    <a class="open" id="open" target="_blank" rel="noopener" data-t="open"></a>
+    <p data-t="how"></p>
+    <img class="qr" id="qr" alt="">
+    <p class="foot"><span data-t="laptop"></span> <a id="emu" target="_blank" rel="noopener" data-t="emu"></a></p>
+    <div class="row">
+      <button id="rally" type="button" data-t="rally"></button>
+      <button class="ghost" type="button" onclick="location.reload()" data-t="another"></button>
+    </div>
+  </section>
+
+  <section class="card" id="play" hidden>
+    <h2 data-t="playH"></h2>
+    <a class="open" id="playLink" target="_blank" rel="noopener" data-t="playOpen"></a>
+    <p id="code"></p>
+  </section>
+
+  <form class="card" id="note" hidden>
+    <label for="noteText" data-t="noteL"></label>
+    <textarea id="noteText" maxlength="300"></textarea>
+    <button class="ghost" type="submit" data-t="noteB"></button>
+    <p class="foot" id="noteDone" hidden data-t="noteDone"></p>
+  </form>
+
+  <p class="warn" id="err" hidden></p>
+  <p class="foot" data-t="foot"></p>
+</main>
+<script>
+const ja = /^ja/i.test(new URLSearchParams(location.search).get('lang') || navigator.language || '');
+const T = ja ? {
+  h1: 'いま、ここでキャラを作る',
+  lead: '一言のテーマから、床に立って、話せて、手で触れるキャラが生まれます。Muse もアプリもいりません。ここの中身は Muse の中で動くものと同じです。だいたい1〜2分です。',
+  themeL: 'どんなキャラにしますか',
+  themePh: '例：夏祭りの眠そうな金魚',
+  chips: ['焚き火の精霊', '月夜のたぬき', '商店街のコロッケくん', '雨の日のカタツムリ'],
+  nickL: '呼び名（なくても可）', spellL: '魔法',
+  spells: ['おまかせ', '雷', '炎', '氷の稲妻', '星の魔法陣', '光の柱'],
+  consent: '預かるのは呼び名、テーマ、作ったARの情報だけです。公開したキャラは、リンクを知っている人が見られます。他の人のキャラやブランドの名前は、権利がなければ入れないでください。',
+  go: '作る',
+  wait: 'サーバーが作っています。このページを開いたままにしてください。',
+  steps: ['Muse Spark が名前、性格、魔法を考える', 'Muse Image が絵を描き、表情と後ろ姿も作る', 'SAM 3.1 が切り抜く', 'Muse Spark が絵を目で確かめ、だめなら描き直す', 'サーバーが厚みと動きのある3Dの板にする'],
+  checked: (s) => `Muse Spark の確認：${s}/10`,
+  redrawn: (a, b) => `Muse Spark の確認：${a}/10 で不合格、描き直して ${b}/10`,
+  spell: '魔法',
+  pub: '公開する', again: '作り直す',
+  held: '公開の前に確かめてください。', ip: (n) => `${n} を使っていて、他の人のものかもしれません。`, ipUnknown: '他の人の IP を使っているかどうか、Muse Spark は確かめられませんでした。',
+  low: (s, w) => `Muse Spark の判定は ${s}/10 でした${w ? `（${w}）` : ''}。`,
+  force: 'このまま公開する', forceIp: '権利がある・許可を得ているので公開する',
+  liveH: '公開しました', open: 'ARを開く',
+  how: 'スマホで開いて、カメラとマイクを許可し、床に向けてください。周りを歩けます。指でつまんで運べます。Talk を押して話しかけると答えます。「ジャンプして！」と頼むと跳ねます。手のひらを見せると魔法を使います。',
+  laptop: 'パソコンなら', emu: 'エミュレーターで開く（Place Content を押す）',
+  rally: 'このキャラでスタンプラリーを作る', another: 'もう1体作る',
+  playH: 'スタンプラリーができました', playOpen: '遊ぶページを開く',
+  code: (c) => `Muse でコネクターを追加した人は「Join ${c}」と話すと、チャットで遊べます。`,
+  noteL: '使ってみてどうでしたか（任意・ひとこと。個人情報は書かないでください）', noteB: '送る', noteDone: 'ありがとうございます。',
+  busy: 'まだ作っています…', fail: '止まってしまいました。もう一度押してください。', pubFail: '公開に失敗しました。もう一度押してください。',
+  foot: '作るたびに有料の API を少し使うので、回数の上限があります。作ったキャラの権利の確認はしていません。HACK IT INC. が Meta Global AI Developer Hackathon のために作りました。',
+} : {
+  h1: 'Make a character right here',
+  lead: 'One theme in, and a character that stands on your floor, talks and can be touched comes out. No Muse, no app: this page calls the same connector Muse calls. It takes 1–2 minutes.',
+  themeL: 'What should it be?',
+  themePh: 'e.g. a sleepy goldfish from a summer festival',
+  chips: ['a bonfire spirit', 'a moonlit tanuki', 'a croquette from a shopping street', 'a snail on a rainy day'],
+  nickL: 'Your nickname (optional)', spellL: 'Spell',
+  spells: ['Let it choose', 'Lightning', 'Fire', 'Frozen lightning', 'Starfall', 'Light pillar'],
+  consent: 'We keep only your nickname, your theme and the AR you make. Anyone with the link can see what you publish. Do not name other people\'s characters or brands unless you have the right.',
+  go: 'Make it',
+  wait: 'The server is making it. Keep this page open.',
+  steps: ['Muse Spark designs the name, personality and spell', 'Muse Image draws it, then its expressions and its back', 'SAM 3.1 cuts it out', 'Muse Spark checks the drawing with vision and redraws if it fails', 'The server builds a rigged 3D plate'],
+  checked: (s) => `Muse Spark's check: ${s}/10`,
+  redrawn: (a, b) => `Muse Spark's check: ${a}/10 failed, redrawn to ${b}/10`,
+  spell: 'Spell',
+  pub: 'Publish it', again: 'Start over',
+  held: 'Check this before it goes out.', ip: (n) => `This uses ${n}, which may belong to someone else.`, ipUnknown: 'Muse Spark could not say whether this uses someone else\'s IP.',
+  low: (s, w) => `Muse Spark scored this drawing ${s}/10${w ? ` (${w})` : ''}.`,
+  force: 'Publish it anyway', forceIp: 'I own it or have permission: publish',
+  liveH: 'It is live', open: 'Open the AR',
+  how: 'On a phone: allow the camera and microphone and aim at the floor. Walk around it. Pinch to carry it. Press Talk and speak: it answers. Ask it to jump and it jumps. Show your palm for its spell.',
+  laptop: 'On a laptop:', emu: 'open it in our emulator (press Place Content)',
+  rally: 'Make a stamp rally with it', another: 'Make another',
+  playH: 'Your stamp rally is ready', playOpen: 'Open the play page',
+  code: (c) => `With the connector added, say "Join ${c}" in Muse to play it in the chat.`,
+  noteL: 'How was it? (optional, one line, no personal details)', noteB: 'Send', noteDone: 'Thank you.',
+  busy: 'Still making it…', fail: 'That stopped. Press the button again.', pubFail: 'Publishing failed. Press the button again.',
+  foot: 'Each character uses a little paid API credit, so there are rate limits. Rights are not checked. Built by HACK IT INC. for the Meta Global AI Developer Hackathon.',
+};
+const $ = (id) => document.getElementById(id);
+document.documentElement.lang = ja ? 'ja' : 'en';
+document.querySelectorAll('[data-t]').forEach((el) => { el.textContent = T[el.dataset.t]; });
+$('theme').placeholder = T.themePh;
+T.chips.forEach((c) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = c; b.onclick = () => { $('theme').value = c; }; $('chips').append(b); });
+['auto', 'lightning', 'fire', 'frozen-lightning', 'starfall', 'light'].forEach((v, i) => { const o = document.createElement('option'); o.value = v; o.textContent = T.spells[i]; $('spell').append(o); });
+T.steps.forEach((s) => { const li = document.createElement('li'); li.textContent = s; $('waitList').append(li); });
+
+let card = null, nickname = '', rid = 1, ticker = null, projectId = null;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const showErr = (m) => { $('err').textContent = m || ''; $('err').hidden = !m; };
+const startWait = (line, list) => {
+  const t0 = Date.now(); $('wait').hidden = false; $('waitLine').textContent = line; $('waitList').hidden = !list;
+  const tick = () => { const s = Math.floor((Date.now() - t0) / 1000); $('clock').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  tick(); ticker = setInterval(tick, 1000);
+};
+const stopWait = () => { clearInterval(ticker); $('wait').hidden = true; };
+
+// One tool call. Slow tools answer as an event stream with keep-alive comments, the rest as JSON.
+async function call(name, args) {
+  const res = await fetch('/mcp', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: rid++, method: 'tools/call', params: { name, arguments: args } }),
+  });
+  const text = await res.text();
+  let data = null;
+  for (const line of text.split('\n')) if (line.startsWith('data:')) data = line.slice(5).trim();
+  const msg = JSON.parse(data || text);
+  if (msg.error) throw new Error(msg.error.message);
+  const r = msg.result || {};
+  if (r.isError) throw new Error(r.content?.[0]?.text || T.fail);
+  const s = r.structuredContent || {};
+  if (s.card) card = s.card;
+  return s;
+}
+// Same call again while the server is busy or its saved state is briefly out of reach.
+async function patient(name, args) {
+  for (let i = 0; i < 12; i++) {
+    const s = await call(name, { ...args, nickname, card });
+    if (!s.composing && !s.retryLater) return s;
+    $('waitLine').textContent = T.busy;
+    await sleep(s.composing ? 15000 : 4000);
+  }
+  throw new Error(T.fail);
+}
+
+$('start').addEventListener('submit', async (e) => {
+  e.preventDefault(); showErr('');
+  const theme = $('theme').value.trim(); if (!theme) return;
+  nickname = $('nick').value.trim() || 'Guest';
+  $('go').disabled = true; $('start').hidden = true; startWait(T.wait, true);
+  try {
+    await call('start_create', { nickname, theme, agreed: true });
+    const s = await patient('compose_ar', { theme, effect: $('spell').value });
+    stopWait(); showMade(s);
+  } catch (err) {
+    stopWait(); $('start').hidden = false; $('go').disabled = false; showErr(err.message || T.fail);
+  }
+});
+
+function showMade(s) {
+  $('name').textContent = s.characterName || s.title || '';
+  $('persona').textContent = s.persona || '';
+  if (s.preview) { $('pic').src = s.preview; $('pic').alt = s.characterName || ''; } else $('pic').hidden = true;
+  const c = s.selfCheck;
+  const check = !c ? '' : c.redrawn && c.before ? T.redrawn(c.before.score, c.score) : T.checked(c.score);
+  $('facts').textContent = [check, `${T.spell}: ${T.spells[['auto', 'lightning', 'fire', 'frozen-lightning', 'starfall', 'light'].indexOf(s.effect)] || s.effect}`].filter(Boolean).join(' / ');
+  $('made').hidden = false;
+}
+
+async function publish(confirmed) {
+  showErr(''); $('pub').disabled = true; startWait(T.wait, false);
+  try {
+    const s = await patient('publish_ar', confirmed ? { confirmed: true } : {});
+    stopWait();
+    if (s.needsConfirmation) {
+      const lines = [T.held];
+      if (s.rights) lines.push(s.rights === 'unknown' ? T.ipUnknown : T.ip(s.rights));
+      if (s.selfCheck) lines.push(T.low(s.selfCheck.score, (s.selfCheck.issues || []).join(', ')));
+      $('stop').textContent = lines.join(' '); $('stop').hidden = false;
+      $('pub').textContent = s.rights ? T.forceIp : T.force; $('pub').disabled = false;
+      $('pub').onclick = () => publish(true);
+      return;
+    }
+    if (!s.url) throw new Error(T.pubFail);
+    projectId = s.hackarsProjectId || (/([0-9a-f-]{36})/.exec(s.url) || [])[1] || null;
+    $('madeBtns').hidden = true; $('stop').hidden = true;
+    $('open').href = s.url; $('qr').src = s.qr;
+    const params = `https://pgyuabajrswdkzuksqfu.supabase.co/storage/v1/object/public/deployments/${projectId}/overlay-params.json`;
+    $('emu').href = `https://hackar-s.com/slam-emulator.html?params=${encodeURIComponent(params)}`;
+    $('live').hidden = false; $('note').hidden = false;
+    $('live').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    stopWait(); $('pub').disabled = false; showErr(err.message || T.pubFail);
+  }
+}
+$('pub').onclick = () => publish(false);
+$('again').onclick = () => location.reload();
+
+$('rally').onclick = async () => {
+  showErr(''); $('rally').disabled = true; startWait(T.wait, false);
+  try {
+    const s = await patient('make_play', { kinds: ['quiz', 'riddle', 'rally'], spots: 4 });
+    stopWait();
+    if (!s.url) throw new Error(T.fail);
+    $('playLink').href = s.url;
+    $('code').textContent = s.joinCode ? T.code(s.joinCode) : '';
+    $('play').hidden = false;
+    $('play').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    stopWait(); $('rally').disabled = false; showErr(err.message || T.fail);
+  }
+};
+
+$('note').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('noteText').value.trim(); if (!text) return;
+  $('noteText').disabled = true;
+  try { await fetch('/api/note', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, project: projectId }) }); } catch { /* the note is optional */ }
+  $('noteDone').hidden = false;
+});
+</script>
+</body>
+</html>
