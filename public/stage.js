@@ -18,7 +18,7 @@ const WORDS = {
 export function mountStage(box, uiLang) {
   const w = WORDS[uiLang === 'ja' ? 'ja' : 'en'];
   box.innerHTML = `
-    <div class="stage"><model-viewer auto-rotate rotation-per-second="45deg" camera-controls autoplay animation-name="idle" interaction-prompt="none" shadow-intensity="0"></model-viewer></div>
+    <div class="stage"><model-viewer auto-rotate rotation-per-second="45deg" camera-controls autoplay animation-name="idle" interaction-prompt="none" shadow-intensity="0" tone-mapping="commerce" environment-image="neutral" exposure="0.9"></model-viewer></div>
     <div class="clips"></div>
     <form class="say"><input maxlength="200" autocomplete="off"><button type="submit">${w.send}</button></form>
     <div class="said" hidden></div>`;

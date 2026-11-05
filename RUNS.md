@@ -70,6 +70,7 @@ The page at `/try` came after the video. It calls the same connector, without Mu
 |---|--:|--:|---|---|---|
 | a snail on a rainy day, in Japanese | 67 | 25 | 6→10 | Redrawn after "holes in umbrella canopy". Stamp rally made from the page in 23 s (PLAY-5668) | [a686cba4](https://hackar-s.com/slam-ar/a686cba4-afb8-4442-9dcc-022d680d2c81) |
 | a bonfire spirit | 57 | 26 | 10/10 | Model turned in the page. Typed "Show me your magic!" before publishing: Spark chose `spell` | [9c36a26b](https://hackar-s.com/slam-ar/9c36a26b-6c5f-4d04-ac79-7f690aad437c) |
+| Kaki-chan, from a three-view sheet (a test sheet made with Muse Image for this check) | – | – | 10/10 | Front and back are the sheet's own pixels, no model drew them. The page asked about the rights first. This is the model in the video's closing scene | [12d96a90](https://hackar-s.com/slam-ar/12d96a90-6d3c-4cd8-8526-a12e64822f2f) |
 
 ## Stopped before publishing
 
@@ -86,6 +87,7 @@ These ran after the runs above and did not try to publish, or were stopped on pu
 | Muse | Kumamon in a happi coat | – | 10/10 | Muse held it and asked the same question. Not published. |
 | direct | a paper boat on a river | 49.3 | 9/10 | Stream check for run 41, read line by line the way Muse's client reads it. The result arrived. Not published. |
 | direct | a tiny kite over the sea | 34.4 | passed | Lost-reply check: the same call again with the old card returned the same character in 4.2 s, with nothing drawn. Not published. |
+| page | a photo of a marker sketch of a cloud | – | 10/10 | Own-picture check: a Muse Image edit kept the marker lines and removed the paper and the desk. Not published. |
 | page | a paper lantern fish | 77 | 7→10 | Lost-reply check through `/try`: the reply was dropped on purpose in the browser, the page repeated the call with the same card, and the same character came back in 5 s (`compose-resumed` in the log). Not published. |
 
 ## Looked at by eye
