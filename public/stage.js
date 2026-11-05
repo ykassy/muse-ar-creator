@@ -8,6 +8,7 @@ const MOVES = {
   jump: { frames: [{ transform: 'none' }, { transform: 'scale(1.08,.9)', offset: 0.15 }, { transform: 'translateY(-110px) scale(.95,1.06)', offset: 0.5 }, { transform: 'scale(1.1,.88)', offset: 0.85 }, { transform: 'none' }], ms: 900 },
   hop: { frames: [...hop(36, 0), ...hop(36, 0.3), ...hop(36, 0.6), { transform: 'none', offset: 1 }], ms: 1200 },
   flat: { frames: [{ transform: 'none' }, { transform: 'scale(1.25,.12)', offset: 0.3 }, { transform: 'scale(1.25,.12)', offset: 0.7 }, { transform: 'none' }], ms: 1400 },
+  look: { frames: [{ transform: 'none' }, { transform: 'rotate(-5deg)', offset: 0.3 }, { transform: 'rotate(5deg)', offset: 0.7 }, { transform: 'none' }], ms: 1300 },
 };
 const WORDS = {
   en: { ph: 'Say something. Try "Jump!"', send: 'Send', you: 'You', picked: (e, a) => `Muse Spark chose: ${e}${a !== 'none' ? `, ${a}` : ''}`, busy: '…', fail: 'It could not answer just now. Try again.' },
