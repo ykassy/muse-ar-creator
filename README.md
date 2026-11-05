@@ -17,7 +17,9 @@ Say the passphrase "Moshi Moshi" in Muse to start, give a one-word theme, and th
 
 ## Who it is for
 
-The first user is the person behind a mascot at a small shop or a local festival, who usually has the character already, often as a three-view sheet. That is why `/try` keeps their art instead of drawing a new one. Japan is full of them: the 2015 Yuru-chara Grand Prix alone had [1,727 entries](https://www.travelvoice.jp/20151124-55505), 1,092 of them local mascots. One AR character still takes a designer, an editor and device testing, so most of them never get one. Here that person gives a theme or a sketch in a chat, checks the result and decides whether to publish; the drawing, cut-out, 3D build, hosting and the rally are done for them. No one outside our team has tried this yet.
+The first user is the person behind a mascot at a small shop or a local festival, who usually has the character already, often as a three-view sheet. That is why `/try` keeps their art instead of drawing a new one.
+
+[![A test three-view sheet and the model made from it: its front and back are the sheet's own drawing](docs/sheet-to-model.jpg)](https://hackathon-ar-creator.vercel.app/try) Japan is full of them: the 2015 Yuru-chara Grand Prix alone had [1,727 entries](https://www.travelvoice.jp/20151124-55505), 1,092 of them local mascots. One AR character still takes a designer, an editor and device testing, so most of them never get one. Here that person gives a theme or a sketch in a chat, checks the result and decides whether to publish; the drawing, cut-out, 3D build, hosting and the rally are done for them. No one outside our team has tried this yet.
 
 ## Try it
 
