@@ -2,7 +2,7 @@
 
 [![The 40 characters our runs published, as generated](docs/characters.jpg)](https://hackathon-ar-creator.vercel.app/gallery)
 
-**[Watch the 3-minute demo](https://youtu.be/zSJwPuPBn2Y)** · **[Make one in your browser, no Muse needed](https://hackathon-ar-creator.vercel.app/try)** · **[Turn any of these 40 in 3D and talk to it](https://hackathon-ar-creator.vercel.app/gallery)** · **[Every run, with its failures](RUNS.md)** · **[What was built when](BUILT_DURING.md)**
+**[Watch the 3-minute demo](https://youtu.be/HcKuMI8WqM0)** · **[Make one in your browser, no Muse needed](https://hackathon-ar-creator.vercel.app/try)** · **[Turn any of these 40 in 3D and talk to it](https://hackathon-ar-creator.vercel.app/gallery)** · **[Every run, with its failures](RUNS.md)** · **[What was built when](BUILT_DURING.md)**
 
 **Talk to Muse, and a character you can touch and talk to is born inside HACKAR:S — our production WebAR platform.** Hand interactions designed for AR glasses, tried on today's phones.
 
@@ -23,7 +23,7 @@ The first user is the person behind a mascot at a small shop or a local festival
 
 ## Try it
 
-Demo video: https://youtu.be/zSJwPuPBn2Y
+Demo video: https://youtu.be/HcKuMI8WqM0
 
 The quickest start is the page at https://hackathon-ar-creator.vercel.app/ (QR code and links).
 
