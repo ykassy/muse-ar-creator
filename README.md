@@ -2,7 +2,7 @@
 
 [![The 40 characters our runs published, as generated](docs/characters.jpg)](https://hackathon-ar-creator.vercel.app/gallery)
 
-**[Watch the 3-minute demo](https://youtu.be/I_qZurPZkVU)** · **[Make one in your browser, no Muse needed](https://hackathon-ar-creator.vercel.app/try)** · **[Turn any of these 40 in 3D](https://hackathon-ar-creator.vercel.app/gallery)** · **[Every run, with its failures](RUNS.md)** · **[What was built when](BUILT_DURING.md)**
+**[Watch the 3-minute demo](https://youtu.be/I_qZurPZkVU)** · **[Make one in your browser, no Muse needed](https://hackathon-ar-creator.vercel.app/try)** · **[Turn any of these 40 in 3D and talk to it](https://hackathon-ar-creator.vercel.app/gallery)** · **[Every run, with its failures](RUNS.md)** · **[What was built when](BUILT_DURING.md)**
 
 **Talk to Muse, and a character you can touch and talk to is born inside HACKAR:S — our production WebAR platform.** Hand interactions designed for AR glasses, tried on today's phones.
 
@@ -25,7 +25,7 @@ Demo video: https://youtu.be/I_qZurPZkVU
 
 The quickest start is the page at https://hackathon-ar-creator.vercel.app/ (QR code and links).
 
-- **Make your own, in a browser, no Muse:** https://hackathon-ar-creator.vercel.app/try . Give a theme and in 1–2 minutes its 3D model turns on the page, with its nine clips; then publish it and make a stamp rally if you want one. The page makes the same `start_create`, `compose_ar`, `publish_ar` and `make_play` calls Muse makes, and it asks the same questions before publishing a failed drawing or someone else's IP.
+- **Make your own, in a browser, no Muse:** https://hackathon-ar-creator.vercel.app/try . Give a theme and in 1–2 minutes its 3D model turns on the page, with its nine clips. Type to it and Muse Spark answers in character and picks an emotion and an action (`public/stage.js` plays them with simple moves, a light copy of the phone's). Then publish it and make a stamp rally if you want one. The page makes the same `start_create`, `compose_ar`, `publish_ar` and `make_play` calls Muse makes, and it asks the same questions before publishing a failed drawing or someone else's IP.
 - **On a phone, no app:** open https://hackar-s.com/slam-ar/350e9339-746e-4d64-86be-52161c4bd46b in the browser, aim at the floor, then pinch, talk and show your palm. Allow the camera and microphone. This is the cloud from the video: Muse read the sketch and the connector built it, with no retouching. Sunny, the festival mascot, is at https://hackar-s.com/slam-ar/efd6db6a-a5c0-45ee-9503-7a27fe4ddb21 (made before the back view existed, so its back is a solid color).
 - **On a laptop:** the same cloud in our [AR emulator](https://hackar-s.com/slam-emulator.html?params=https%3A%2F%2Fpgyuabajrswdkzuksqfu.supabase.co%2Fstorage%2Fv1%2Fobject%2Fpublic%2Fdeployments%2F350e9339-746e-4d64-86be-52161c4bd46b%2Foverlay-params.json). Press Place Content.
 - **In Muse:** add `https://hackathon-ar-creator.vercel.app/mcp` as a custom connector, then say "Moshi Moshi".

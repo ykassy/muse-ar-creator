@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MOSHI MOSHI — Every character</title>
 <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+<link rel="stylesheet" href="/stage.css">
 <style>
   :root{--bg:#0e0e14;--card:#17171f;--ink:#f2f2f5;--sub:#c9c9d2;--dim:#8a8a96;--key:#ffcf5c;--link:#8fc7ff}
   *{box-sizing:border-box}
@@ -20,10 +21,6 @@
   .grid img{width:100%;aspect-ratio:1;object-fit:contain}
   dialog{width:min(560px,calc(100vw - 32px));background:var(--card);color:var(--ink);border:0;border-radius:16px;padding:16px}
   dialog::backdrop{background:rgba(0,0,0,.7)}
-  model-viewer{width:100%;height:min(420px,60vh);background:#26263a;border-radius:12px;--poster-color:transparent}
-  .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center}
-  .row button{font:inherit;font-size:13px;background:#26263a;color:var(--ink);border:0;border-radius:999px;padding:6px 10px;cursor:pointer}
-  .row button.on{background:var(--key);color:#1b1608}
   .open{display:inline-block;background:var(--key);color:#1b1608;font-weight:800;text-decoration:none;border-radius:12px;padding:10px 14px;margin-top:12px}
   #close{float:right;margin:12px 0 0;font:inherit;background:transparent;color:var(--ink);border:1px solid #2c2c3a;border-radius:12px;padding:9px 14px;cursor:pointer}
 </style>
@@ -32,7 +29,7 @@
 <main>
   <div class="tag"><a href="/" style="color:inherit;text-decoration:none">MOSHI MOSHI</a></div>
   <h1>Every character from our runs</h1>
-  <p>The 40 characters our runs published, in order and as generated, with no retouching. That includes the ones Muse Spark did not pass. Press one to turn its 3D model here and play its clips, or open it in AR on a phone. <a href="/try">Make your own</a>. The notes on each run are in <a href="https://github.com/ykassy/muse-ar-creator/blob/main/RUNS.md">RUNS.md</a>.</p>
+  <p>The 40 characters our runs published, in order and as generated, with no retouching. That includes the ones Muse Spark did not pass. Press one to turn its 3D model here, play its clips and talk to it, or open it in AR on a phone. <a href="/try">Make your own</a>. The notes on each run are in <a href="https://github.com/ykassy/muse-ar-creator/blob/main/RUNS.md">RUNS.md</a>.</p>
   <div class="grid" id="grid">
     <a href="https://hackar-s.com/slam-ar/f776df2d-049b-42f0-ac32-0ac47b3a42d2" data-id="f776df2d-049b-42f0-ac32-0ac47b3a42d2" data-name="#1 cloud cafe, umbrella"><img loading="lazy" src="https://pgyuabajrswdkzuksqfu.supabase.co/storage/v1/object/public/deployments/f776df2d-049b-42f0-ac32-0ac47b3a42d2/assets/face_neutral.png" alt="cloud cafe, umbrella"><span>#1 cloud cafe, umbrella</span></a>
     <a href="https://hackar-s.com/slam-ar/47df1d75-d7ed-42ca-b97c-71e3ea70ae02" data-id="47df1d75-d7ed-42ca-b97c-71e3ea70ae02" data-name="#2 smiling cloud, umbrella"><img loading="lazy" src="https://pgyuabajrswdkzuksqfu.supabase.co/storage/v1/object/public/deployments/47df1d75-d7ed-42ca-b97c-71e3ea70ae02/assets/face_neutral.png" alt="smiling cloud, umbrella"><span>#2 smiling cloud, umbrella</span></a>
@@ -77,29 +74,30 @@
   </div>
 </main>
 <dialog id="d">
-  <model-viewer id="mv" auto-rotate rotation-per-second="45deg" camera-controls autoplay animation-name="idle" interaction-prompt="none" shadow-intensity="0" alt=""></model-viewer>
-  <div class="row" id="clips"></div>
+  <div id="view"></div>
   <a class="open" id="ar" target="_blank" rel="noopener">Open in AR</a>
   <button id="close" type="button">Close</button>
 </dialog>
-<script>
+<script type="module">
+import { mountStage } from '/stage.js';
 const base = 'https://pgyuabajrswdkzuksqfu.supabase.co/storage/v1/object/public/deployments';
-const d = document.getElementById('d'), mv = document.getElementById('mv'), clips = document.getElementById('clips');
-const reset = () => clips.querySelectorAll('button').forEach((x, i) => x.classList.toggle('on', !i));
-["idle", "happy", "surprised", "sad", "angry", "talk", "dangle", "land", "zap"].forEach((c) => {
-  const b = document.createElement('button'); b.type = 'button'; b.textContent = c;
-  b.onclick = () => { mv.animationName = c; mv.play(); clips.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); };
-  clips.append(b);
-});
-document.getElementById('grid').addEventListener('click', (e) => {
+const d = document.getElementById('d');
+const stage = mountStage(document.getElementById('view'), 'en');
+document.getElementById('grid').addEventListener('click', async (e) => {
   const a = e.target.closest('a'); if (!a || e.metaKey || e.ctrlKey || e.shiftKey || !d.showModal) return;
   e.preventDefault();
-  mv.src = `${base}/${a.dataset.id}/assets/model.glb`; mv.alt = a.dataset.name; mv.animationName = 'idle'; reset();
+  const id = a.dataset.id;
+  stage.load({ glb: `${base}/${id}/assets/model.glb`, name: a.dataset.name.replace(/^#\d+ /, ''), lang: 'en' });
   document.getElementById('ar').href = a.href;
   d.showModal();
+  // the name, personality and language the character was published with
+  try {
+    const o = (await (await fetch(`${base}/${id}/overlay-params.json`)).json()).scene.overlays.find((x) => x.talkPersona || x.talkName);
+    if (o) stage.load({ glb: `${base}/${id}/assets/model.glb`, name: o.talkName, persona: o.talkPersona, lang: o.talkLang });
+  } catch { /* the page still works without them */ }
 });
-document.getElementById('close').onclick = () => d.close();
-d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+document.getElementById('close').onclick = () => { stage.hush(); d.close(); };
+d.addEventListener('click', (e) => { if (e.target === d) { stage.hush(); d.close(); } });
 </script>
 </body>
 </html>

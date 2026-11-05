@@ -209,7 +209,7 @@ const missedComposeReply = async (u) => {
     ? `This character was already finished, so nothing new was drawn (the last reply did not reach you). "${p.ti}"\n${p.tx}\nName: ${p.nm} / Personality: ${p.ps}\nSpell: ${spell.id}${hold}`
     : `このキャラはもうできていたので、新しくは描かなかったよ（前の返事が届かなかったみたい）。「${p.ti}」\n${p.tx}\nキャラ名：${p.nm}／性格：${p.ps}\n魔法：${spell.label}${holdJa}`;
   console.log('[AR] compose-resumed', JSON.stringify({ nickname: u.nickname, arId: u.arId }));
-  return { content: [{ type: 'text', text }], structuredContent: { resumed: true, preview: p.f?.neutral || null, glb: p.g || null, title: p.ti, text: p.tx, color: p.c, effect: p.e, characterName: p.nm, persona: p.ps, theme: p.th, usedModel: true, hasGlb: !!p.g, card: await packCard(u) } };
+  return { content: [{ type: 'text', text }], structuredContent: { resumed: true, preview: p.f?.neutral || null, glb: p.g || null, lang: p.lg, title: p.ti, text: p.tx, color: p.c, effect: p.e, characterName: p.nm, persona: p.ps, theme: p.th, usedModel: true, hasGlb: !!p.g, card: await packCard(u) } };
 };
 const cardArg = z.string().max(20000).optional().describe('前のツールの structuredContent にある card（HC3. で始まる短い文字列）。1文字も変えずにそのまま入れる');
 // A compose can outlast a dropped call. These replies say what is still running, so Muse waits
@@ -1876,7 +1876,7 @@ function buildServer() {
       console.log('[AR] composed', JSON.stringify({ nickname: u.nickname, theme: th, arId, usedModel, effect: comp.effect, glb: !!glbUrl, faces: Object.keys(faces) }));
       return {
         content: [{ type: 'text', text: en ? textEn : text }],
-        structuredContent: { selfCheckProof: ck || undefined, preview: faces.neutral || null, glb: glbUrl || null, title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: await packCard(u) },
+        structuredContent: { selfCheckProof: ck || undefined, preview: faces.neutral || null, glb: glbUrl || null, lang: talkLang || langOf(th), title: comp.title, text: comp.text, color: comp.color, effect: comp.effect, characterName: comp.name, persona: comp.persona, theme: th, usedModel, sparkUsage, imageUsage, usage, hasImage: !!imgId, hasGlb: !!glbUrl, action, selfCheck: check ? { ok: check.ok, score: check.score, issues: check.issues, redrawn, before: check.before || null } : null, card: await packCard(u) },
       };
     } catch (e) {
       releaseWork(u); await packCard(u).catch(() => {});

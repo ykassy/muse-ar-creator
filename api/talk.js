@@ -13,7 +13,7 @@ const MAX_AUDIO = 2 * 1024 * 1024;   // ~60 s of 16 kHz mono WAV, far more than 
 const EFFORTS = ['none', 'minimal', 'low', undefined];   // tried in order until one is accepted
 let effortAt = 0;
 
-const ALLOWED = /^https:\/\/(hackar-s\.com|[a-z0-9-]+\.hackar-s\.com|hackar-[a-z0-9]+-kassyhackitcojps-projects\.vercel\.app)$/;
+const ALLOWED = /^https:\/\/(hackar-s\.com|[a-z0-9-]+\.hackar-s\.com|hackar-[a-z0-9]+-kassyhackitcojps-projects\.vercel\.app|hackathon-ar-creator\.vercel\.app)$/;
 const cors = (origin) => ({
   'Access-Control-Allow-Origin': ALLOWED.test(origin || '') ? origin : 'https://hackar-s.com',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',

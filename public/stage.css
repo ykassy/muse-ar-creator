@@ -1,0 +1,12 @@
+.stage{height:340px;background:#26263a;border-radius:12px;overflow:hidden}
+.stage model-viewer{width:100%;height:100%;background:transparent;--poster-color:transparent}
+.clips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.clips button{font:inherit;font-weight:500;font-size:13px;background:#26263a;color:#f2f2f5;border:0;border-radius:999px;padding:6px 10px;cursor:pointer}
+.clips button.on{background:#ffcf5c;color:#1b1608}
+.say{display:flex;gap:8px;margin-top:10px}
+.say input{flex:1;min-width:0;font:inherit;font-size:16px;color:#f2f2f5;background:#0f0f16;border:1px solid #2c2c3a;border-radius:10px;padding:10px 12px}
+.say input:focus{outline:2px solid #ffcf5c;outline-offset:1px}
+.say button{font:inherit;font-weight:800;font-size:15px;border:0;border-radius:10px;padding:10px 14px;cursor:pointer;background:#ffcf5c;color:#1b1608}
+.said{margin-top:10px;max-height:150px;overflow:auto;font-size:14px;line-height:1.6;color:#c9c9d2}
+.said p{margin:0 0 4px}
+.said .how{color:#8a8a96;font-size:12px}
