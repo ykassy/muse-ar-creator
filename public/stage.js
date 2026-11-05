@@ -19,10 +19,11 @@ export function mountStage(box, uiLang) {
   box.innerHTML = `
     <div class="stage"><model-viewer auto-rotate rotation-per-second="45deg" camera-controls autoplay animation-name="idle" interaction-prompt="none" shadow-intensity="0"></model-viewer></div>
     <div class="clips"></div>
-    <form class="say"><input maxlength="200" autocomplete="off" placeholder="${w.ph}"><button type="submit">${w.send}</button></form>
+    <form class="say"><input maxlength="200" autocomplete="off"><button type="submit">${w.send}</button></form>
     <div class="said" hidden></div>`;
   const stage = box.querySelector('.stage'), mv = box.querySelector('model-viewer'), clips = box.querySelector('.clips');
   const form = box.querySelector('form'), input = form.querySelector('input'), said = box.querySelector('.said');
+  input.placeholder = w.ph;
   let who = {}, history = [], back = 0;
 
   const mark = (name) => clips.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.textContent === name));
