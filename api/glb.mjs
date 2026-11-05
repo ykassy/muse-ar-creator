@@ -587,10 +587,12 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
   for (let i = 0; i < w * h; i++) mask[i] = rgba[i * 4 + 3] > 127 ? 1 : 0;
   // edge colour: median RGB of opaque pixels touching transparency (pre-erosion)
   const edgePx = [];
+  // A little inside the edge, where the line itself is: the outermost pixels are soft and read as grey.
+  const ring = erode(mask, w, h, 3);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    if (!mask[y * w + x]) continue;
-    if (!mask[y * w + Math.max(0, x - 1)] || !mask[y * w + Math.min(w - 1, x + 1)] ||
-        !mask[Math.max(0, y - 1) * w + x] || !mask[Math.min(h - 1, y + 1) * w + x]) {
+    if (!ring[y * w + x]) continue;
+    if (!ring[y * w + Math.max(0, x - 1)] || !ring[y * w + Math.min(w - 1, x + 1)] ||
+        !ring[Math.max(0, y - 1) * w + x] || !ring[Math.min(h - 1, y + 1) * w + x]) {
       edgePx.push([rgba[(y * w + x) * 4], rgba[(y * w + x) * 4 + 1], rgba[(y * w + x) * 4 + 2]]);
     }
   }
@@ -651,11 +653,39 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
     if (opaque > 64) {
       const [fx0, fx1, fy0, fy1] = bodyBox(bw, bh, (x, y) => mask[(y0 + y) * w + x0 + x]);
       const [bx0, bx1, by0, by1] = bodyBox(backW, backH, (x, y) => backRgba[(y * backW + x) * 4 + 3] > 127);
+      // Boxes only start the search. A held board or a hand changes a box, and a drawing placed by its
+      // box loses its outline over the edge of the plate. So try small moves of the mirrored drawing and
+      // keep the one that covers the silhouette best.
+      const fcx = (fx0 + fx1) / 2, fcy = (fy0 + fy1) / 2, bcx = (bx0 + bx1) / 2, bcy = (by0 + by1) / 2;
+      const ratio = backH / h;
+      const at = (x, y, k, dx, dy) => {
+        const sx = Math.round(bcx - (x - fcx) * ratio * k + dx), sy = Math.round(bcy + (y - fcy) * ratio * k + dy);
+        return sx >= 0 && sy >= 0 && sx < backW && sy < backH && backRgba[(sy * backW + sx) * 4 + 3] > 127;
+      };
+      const score = (grid, k, dx, dy) => {
+        let same = 0;
+        for (let gy = 0; gy < grid; gy++) for (let gx = 0; gx < grid; gx++) {
+          const x = Math.floor((gx + 0.5) * bw / grid), y = Math.floor((gy + 0.5) * bh / grid);
+          if (!!mask[(y0 + y) * w + x0 + x] === at(x, y, k, dx, dy)) same++;
+        }
+        return same;
+      };
+      let best = { k: 1, dx: 0, dy: 0, s: -1 };
+      for (const k of [0.92, 0.96, 1, 1.04, 1.08]) for (let dx = -120; dx <= 120; dx += 15) for (let dy = -60; dy <= 60; dy += 15) {
+        const s = score(64, k, dx, dy);
+        if (s > best.s) best = { k, dx, dy, s };
+      }
+      const coarse = best;
+      best = { ...coarse, s: -1 };
+      for (let k = coarse.k - 0.02; k <= coarse.k + 0.021; k += 0.01) for (let dx = coarse.dx - 12; dx <= coarse.dx + 12; dx += 3) for (let dy = coarse.dy - 12; dy <= coarse.dy + 12; dy += 3) {
+        const s = score(96, k, dx, dy);
+        if (s > best.s) best = { k, dx, dy, s };
+      }
       const bt = new Uint8Array(bw * bh * 4);
       const known = new Uint8Array(bw * bh);
       for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
-        const sx = Math.round(bx1 - ((x - fx0) / Math.max(1, fx1 - fx0)) * (bx1 - bx0));
-        const sy = Math.round(by0 + ((y - fy0) / Math.max(1, fy1 - fy0)) * (by1 - by0));
+        const sx = Math.round(bcx - (x - fcx) * ratio * best.k + best.dx);
+        const sy = Math.round(bcy + (y - fcy) * ratio * best.k + best.dy);
         const inside = sx >= 0 && sy >= 0 && sx < backW && sy < backH;
         const si = inside ? (sy * backW + sx) * 4 : 0, a = inside ? backRgba[si + 3] / 255 : 0, di = (y * bw + x) * 4;
         for (let k = 0; k < 3; k++) bt[di + k] = backRgba[si + k];
@@ -681,6 +711,13 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
       // Anything still unreached is walled in by outlines, such as a hand that sticks out. It takes the
       // body's colour: taking the front drawing here put a second face on the back (run 27).
       for (let i = 0; i < bw * bh; i++) if (!known[i]) for (let k = 0; k < 3; k++) bt[i * 4 + k] = bodyColour[k];
+      // The back is cut by the front's outline, so its own line cannot always reach the edge. The line
+      // runs along the edge of the plate instead, in the colour of the drawing's outline.
+      const inner = erode(mask, w, h, Math.max(3, Math.round(Math.max(bw, bh) * 0.009)));
+      for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+        const m = (y0 + y) * w + x0 + x;
+        if (mask[m] && !inner[m]) for (let k = 0; k < 3; k++) bt[(y * bw + x) * 4 + k] = med[k];
+      }
       // The back is seen in passing, so half size is enough. It also keeps the GLB
       // under the asset store's body limit: a stored GLB of 3.47 MB was refused.
       const hw = bw >> 1, hh = bh >> 1, small = new Uint8Array(hw * hh * 4);
@@ -908,7 +945,7 @@ export function buildGlb({ rgba, w, h, encodePng, name = 'character', backRgba =
     materials: [
       { name: 'Artwork', pbrMetallicRoughness: { baseColorTexture: { index: 0 }, roughnessFactor: 0.5, metallicFactor: 0 },
         emissiveTexture: { index: 0 }, emissiveFactor: [0.5, 0.5, 0.5] },
-      { name: 'EdgeSolid', pbrMetallicRoughness: { baseColorFactor: edgeLin, roughnessFactor: 0.34, metallicFactor: 0 },
+      { name: 'EdgeSolid', pbrMetallicRoughness: { baseColorFactor: edgeLin, roughnessFactor: 0.9, metallicFactor: 0 },
         emissiveFactor: [edgeLin[0] * 0.18, edgeLin[1] * 0.18, edgeLin[2] * 0.18] },
       { name: 'BlobShadow', pbrMetallicRoughness: { baseColorTexture: { index: 1 }, baseColorFactor: [0, 0, 0, 1], roughnessFactor: 1, metallicFactor: 0 },
         alphaMode: 'BLEND', doubleSided: true },
