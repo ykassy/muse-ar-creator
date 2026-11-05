@@ -69,6 +69,7 @@ The page at `/try` came after the video. It calls the same connector, without Mu
 | Theme | Compose s | Publish s | Self-check | Notes | Result |
 |---|--:|--:|---|---|---|
 | a snail on a rainy day, in Japanese | 67 | 25 | 6→10 | Redrawn after "holes in umbrella canopy". Stamp rally made from the page in 23 s (PLAY-5668) | [a686cba4](https://hackar-s.com/slam-ar/a686cba4-afb8-4442-9dcc-022d680d2c81) |
+| a bonfire spirit | 57 | 26 | 10/10 | Model turned in the page. Typed "Show me your magic!" before publishing: Spark chose `spell` | [9c36a26b](https://hackar-s.com/slam-ar/9c36a26b-6c5f-4d04-ac79-7f690aad437c) |
 
 ## Stopped before publishing
 
