@@ -131,8 +131,8 @@ const T = ja ? {
   h1: 'いま、ここでキャラを作る',
   lead: '一言のテーマから、この画面で3Dで回り、話しかけると答え、床に立つキャラが生まれます。Muse もアプリもいりません。このページは Muse と同じコネクターを呼びます。だいたい1〜2分です。',
   themeL: 'どんなキャラにしますか',
-  ownL: '自分のキャラの絵（なくても可）',
-  ownHelp: '絵を選ぶと、新しく描かず、そのデザインのまま作ります。上の欄には名前や性格を書いてください。公開の前に、権利があるかを確認します。',
+  ownL: '自分のキャラの絵や三面図（なくても可）',
+  ownHelp: '白地の絵なら、あなたの絵そのものを使います。三面図なら、正面も背中もあなたの絵です。写真は Muse Image がデザインを保って背景だけを外します。上の欄には名前や性格を書いてください。公開の前に、権利があるかを確認します。',
   themePh: '例：夏祭りの眠そうな金魚',
   chips: ['焚き火の精霊', '月夜のたぬき', '商店街のコロッケくん', '雨の日のカタツムリ'],
   nickL: '呼び名（なくても可）', spellL: '魔法',
@@ -163,8 +163,8 @@ const T = ja ? {
   h1: 'Make a character right here',
   lead: 'One theme in, and a character comes out that turns in 3D on this page, answers when you talk to it, and stands on your floor in AR. No Muse, no app: this page calls the same connector Muse calls. It takes 1–2 minutes.',
   themeL: 'What should it be?',
-  ownL: 'Your own character (optional)',
-  ownHelp: 'Choose a picture and it keeps that design instead of drawing a new one. Use the box above for its name and personality. Before publishing, you are asked whether you hold the rights.',
+  ownL: 'Your own character: a picture or a three-view sheet (optional)',
+  ownHelp: 'On a clean white page your own pixels are used, and a sheet gives both the front and the back. A photo goes through Muse Image, which keeps the design and removes what is around it. Use the box above for its name and personality. Before publishing, you are asked whether you hold the rights.',
   themePh: 'e.g. a sleepy goldfish from a summer festival',
   chips: ['a bonfire spirit', 'a moonlit tanuki', 'a croquette from a shopping street', 'a snail on a rainy day'],
   nickL: 'Your nickname (optional)', spellL: 'Spell',
@@ -201,19 +201,23 @@ T.chips.forEach((c) => { const b = document.createElement('button'); b.type = 'b
 T.steps.forEach((s) => { const li = document.createElement('li'); li.textContent = s; $('waitList').append(li); });
 
 let card = null, asked = null, nickname = '', rid = 1, ticker = null, projectId = null, ownPicture = null;
-// The picture goes on a white square of 1024 px, so every step after it sees one known shape.
 $('own').addEventListener('change', async () => {
   ownPicture = null; $('ownPic').hidden = true;
   const file = $('own').files[0]; if (!file) return;
   try {
     const bmp = await createImageBitmap(file);
-    const c = document.createElement('canvas'); c.width = c.height = 1024;
-    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 1024, 1024);
-    const k = Math.min(960 / bmp.width, 960 / bmp.height);
-    g.drawImage(bmp, (1024 - bmp.width * k) / 2, (1024 - bmp.height * k) / 2, bmp.width * k, bmp.height * k);
-    const url = c.toDataURL('image/png');
-    ownPicture = url.slice(url.indexOf(',') + 1);
-    $('ownPic').src = url; $('ownPic').hidden = false;
+    // Large enough to keep each view of a sheet sharp, small enough for one request.
+    for (const side of [1536, 1024, 768]) {
+      const k = Math.min(1, side / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(bmp, 0, 0, c.width, c.height);
+      const url = c.toDataURL('image/png');
+      ownPicture = url.slice(url.indexOf(',') + 1);
+      $('ownPic').src = url;
+      if (ownPicture.length < 3_400_000) break;
+    }
+    $('ownPic').hidden = false;
   } catch { showErr(T.fail); }
 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

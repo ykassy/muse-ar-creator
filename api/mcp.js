@@ -9,6 +9,7 @@ import { createHmac, createHash, randomBytes } from 'node:crypto';
 import { inflateSync, deflateSync } from 'node:zlib';
 import { z } from 'zod';
 import { buildFittingGlb } from './glb.mjs';
+import { ownArt } from './sheet.mjs';
 import { normAns, answerForms } from './answers.mjs';
 import { parseSamText, decodeOneBitMask } from './sam.mjs';
 
@@ -1412,7 +1413,15 @@ function keyForPicture(buf, theme) {
     return green > blue ? { name: 'blue', hex: '#0000FF', ch: 2 } : { name: 'green', hex: '#00FF00', ch: 1 };
   } catch { return keyFor(theme); }
 }
-async function callOwnPicture(b64, theme) {
+function onWhiteSquare(b64) {
+  const img = decodePng(Buffer.from(b64, 'base64')), S = 1024, k = Math.min(960 / img.w, 960 / img.h);
+  const tw = Math.round(img.w * k), th = Math.round(img.h * k), small = scaleRgba(img, tw, th);
+  const out = new Uint8Array(S * S * 4).fill(255), ox = Math.round((S - tw) / 2), oy = Math.round((S - th) / 2);
+  for (let y = 0; y < th; y++) out.set(small.rgba.subarray(y * tw * 4, (y + 1) * tw * 4), ((y + oy) * S + ox) * 4);
+  return Buffer.from(encodePng(S, S, out)).toString('base64');
+}
+async function callOwnPicture(picture, theme) {
+  const b64 = onWhiteSquare(picture);
   const key = keyForPicture(Buffer.from(b64, 'base64'), theme);
   const prompt = `Keep this character exactly as it is: the same design, shapes, colors, face, pose, line and art style. Do not redraw, restyle or improve it. Remove everything around it, and place the whole character, centered and complete inside the frame, on a completely solid vivid ${key.name} (${key.hex}) chroma key background that fills the entire frame edge to edge. No shadow, no gradient, no floor, no text.`;
   const out = await callImageEdit(b64, prompt) || await callImageEdit(b64, prompt);
@@ -1788,10 +1797,21 @@ function buildServer() {
     try {
       const th = u.theme;
       let comp = null, imgId = null, sparkUsage = null, imageUsage = null, usedModel = false, notes = [], transparentApplied = false;
-      let glbUrl = null, glbAspect = null, faces = {}, rawPngBuf = null, keyedBuf = null, keyCh = 1, samUsage = null;
+      let glbUrl = null, glbAspect = null, faces = {}, rawPngBuf = null, keyedBuf = null, keyCh = 1, samUsage = null, own = null;
       if (MODEL_API_KEY) {
         // The drawing only needs the theme, so it starts alongside the design.
-        const drawing = (ownPicture ? callOwnPicture(ownPicture, th) : callImage(th, null, 'transparent')).catch((e) => ({ failed: e }));
+        if (ownPicture) {
+          // A clean white page keeps its own pixels: no model draws the front, or the back of a sheet.
+          try {
+            const buf = Buffer.from(ownPicture, 'base64'), key = keyForPicture(buf, th);
+            own = ownArt(decodePng(buf), key.ch, scaleRgba);
+            if (own) own.keyCh = key.ch;
+          } catch (e) { console.log('[AR] own-art-failed', JSON.stringify({ error: String(e?.message || e) })); }
+          console.log('[AR] own-picture', JSON.stringify({ exact: !!own, views: own?.views || 0, back: !!own?.back }));
+        }
+        const drawing = (own
+          ? Promise.resolve({ b64: Buffer.from(encodePng(own.raw.w, own.raw.h, own.raw.rgba)).toString('base64'), remote: null, usage: null, type: 'image/png', keyCh: own.keyCh })
+          : ownPicture ? callOwnPicture(ownPicture, th) : callImage(th, null, 'transparent')).catch((e) => ({ failed: e }));
         try {
           const r = await callSpark(th);
           comp = r.comp; sparkUsage = r.usage; usedModel = true;
@@ -1808,7 +1828,7 @@ function buildServer() {
               const type = r.type || 'image/webp';
               if (type === 'image/png') {
                 rawPngBuf = buf; keyCh = r.keyCh || 1;
-                try { keyedBuf = makeTransparent(buf, keyCh); buf = keyedBuf; transparentApplied = true; }
+                try { keyedBuf = own ? Buffer.from(encodePng(own.cut.w, own.cut.h, own.cut.rgba)) : makeTransparent(buf, keyCh); buf = keyedBuf; transparentApplied = true; }
                 catch (ke) { console.log('[AR] keying-failed', JSON.stringify({ theme: th, error: String(ke?.message || ke) })); notes.push('透過処理ができなかったので、そのままの画像で表示します'); }
               }
               imgs.set(imgId, { buf, type });
@@ -1821,14 +1841,14 @@ function buildServer() {
         notes.push('APIキー未設定のためテンプレート構成です');
       }
       // SAM 3.1 のマスクが使えれば、クロマキーの輪郭を差し替える（GLB・表情の前に）。
-      if (keyedBuf && rawPngBuf && MODEL_API_KEY) {
+      if (keyedBuf && rawPngBuf && MODEL_API_KEY && !own) {
         const sam = await callSamCutout(rawPngBuf, keyedBuf);
         if (sam) { keyedBuf = sam.buf; samUsage = { calls: 1, kept: sam.kept }; }
       }
       // 表情と裏の絵は時間がかかるので、自己チェックと同時に始める。描き直しになったら作り直す。
       let backJob = null, facesJob = null;
       const startArtJobs = () => {
-        backJob = makeBack(rawPngBuf, keyCh);
+        backJob = own?.back ? Promise.resolve(own.back) : makeBack(rawPngBuf, keyCh);
         facesJob = makeFaces(rawPngBuf, keyedBuf, keyCh).catch(() => ({}));
       };
       if (keyedBuf && rawPngBuf && MODEL_API_KEY) startArtJobs();
