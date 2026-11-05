@@ -127,7 +127,7 @@
   <p class="foot" data-t="foot"></p>
 </main>
 <script>
-const ja = /^ja/i.test(new URLSearchParams(location.search).get('lang') || navigator.language || '');
+const ja = /^ja/i.test(new URLSearchParams(location.search).get('lang') || '');
 const T = ja ? {
   h1: 'いま、ここでキャラを作る',
   lead: '一言のテーマから、この画面で3Dで回り、話しかけると答え、床に立つキャラが生まれます。Muse もアプリもいりません。このページは Muse と同じコネクターを呼びます。だいたい1〜2分です。',
