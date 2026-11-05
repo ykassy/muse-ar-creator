@@ -1397,6 +1397,28 @@ async function callImageEdit(pngB64, prompt) {
   } catch (e) { lastEditStatus = 'multipart ' + String(e?.message || e).slice(0, 80); }
   return null;
 }
+// A mascot's owner already has a design, and a new drawing from a theme is the wrong answer for them.
+// Their own picture goes through an image edit that keeps the design and only moves it onto the key
+// colour; expressions, back view, cut-out and the model then run as for any other drawing.
+function keyForPicture(buf, theme) {
+  try {
+    const { w, h, rgba } = decodePng(buf);
+    let green = 0, blue = 0;
+    for (let i = 0; i < w * h; i += 7) {
+      const r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2];
+      if (g > r + 40 && g > b + 40) green++;
+      if (b > r + 40 && b > g + 40) blue++;
+    }
+    return green > blue ? { name: 'blue', hex: '#0000FF', ch: 2 } : { name: 'green', hex: '#00FF00', ch: 1 };
+  } catch { return keyFor(theme); }
+}
+async function callOwnPicture(b64, theme) {
+  const key = keyForPicture(Buffer.from(b64, 'base64'), theme);
+  const prompt = `Keep this character exactly as it is: the same design, shapes, colors, face, pose, line and art style. Do not redraw, restyle or improve it. Remove everything around it, and place the whole character, centered and complete inside the frame, on a completely solid vivid ${key.name} (${key.hex}) chroma key background that fills the entire frame edge to edge. No shadow, no gradient, no floor, no text.`;
+  const out = await callImageEdit(b64, prompt) || await callImageEdit(b64, prompt);
+  if (!out) throw new Error(`own picture edit failed: ${lastEditStatus}`);
+  return { b64: out, remote: null, usage: null, type: 'image/png', keyCh: key.ch };
+}
 const FACE_PROMPTS = {
   happy: 'Change ONLY the facial expression of the character to a big happy smile with joyful closed eyes. Keep everything else - pose, body, colors, background, art style - exactly the same.',
   surprised: 'Change ONLY the facial expression of the character to very surprised: wide round eyes and a small open round mouth. Keep everything else - pose, body, colors, background, art style - exactly the same.',
@@ -1741,10 +1763,11 @@ function buildServer() {
       theme: z.string().optional().describe('テーマ（一言）。前に start_create で受け取っていれば省略可'),
       effect: z.enum(['auto', 'lightning', 'fire', 'frozen-lightning', 'starfall', 'light']).optional().describe('魔法：auto=おまかせ（既定）、lightning=雷、fire=炎、frozen-lightning=氷の稲妻、starfall=星の魔法陣、light=光の柱'),
       talkLang: z.enum(['ja', 'en']).optional().describe('キャラの会話言語（名前・性格・AR内での返事）。省略時はテーマの言語から自動判定'),
+      ownPicture: z.string().max(4_000_000).optional().describe('ブラウザの /try ページ専用。チャットからは使わない。本人の絵の PNG（base64）'),
       card: cardArg,
     },
     annotations: { title: 'ARの中身を組み立てる', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  }, async ({ nickname, theme, effect, talkLang, card }) => {
+  }, async ({ nickname, theme, effect, talkLang, ownPicture, card }) => {
     const t0 = Date.now();
     const u = await getU(nickname, card);
     if (u.badCard) return badCardReply(u);
@@ -1768,7 +1791,7 @@ function buildServer() {
       let glbUrl = null, glbAspect = null, faces = {}, rawPngBuf = null, keyedBuf = null, keyCh = 1, samUsage = null;
       if (MODEL_API_KEY) {
         // The drawing only needs the theme, so it starts alongside the design.
-        const drawing = callImage(th, null, 'transparent').catch((e) => ({ failed: e }));
+        const drawing = (ownPicture ? callOwnPicture(ownPicture, th) : callImage(th, null, 'transparent')).catch((e) => ({ failed: e }));
         try {
           const r = await callSpark(th);
           comp = r.comp; sparkUsage = r.usage; usedModel = true;
@@ -1816,7 +1839,7 @@ function buildServer() {
         try {
           check = await checkArt(keyedBuf, th); checkUsage = check.usage;
           console.log('[AR] self-check', JSON.stringify({ theme: th, ok: check.ok, score: check.score, issues: check.issues, ms: Date.now() - t0 }));
-          if (!check.ok && Date.now() - t0 < 60_000) {
+          if (!check.ok && !ownPicture && Date.now() - t0 < 60_000) {
             const r = await callImage(th, comp, 'transparent', check.fix || 'Show exactly one character, whole body inside the frame, no text.');
             if (r.b64 && r.type === 'image/png') {
               const raw2 = Buffer.from(r.b64, 'base64');
@@ -1864,7 +1887,7 @@ function buildServer() {
       const ck = proofJob ? await proofJob : null;
       const arId = Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
       const arTok = packTok({ rq: [effect || 'auto', talkLang || ''], ck: ck || undefined, sc: check ? { ok: check.ok, score: check.score, issues: (check.issues || []).slice(0, 3), redrawn, before: check.before ? { score: check.before.score } : null } : undefined, i: arId, ti: comp.title, tx: comp.text, c: comp.color, e: comp.effect, th, im: imgId, us: usage, bg: 'transparent', mo: 'bounce', ac: action || undefined, g: glbUrl || undefined, asp: glbAspect || undefined, f: Object.keys(faces).length ? faces : undefined, nm: comp.name, ps: comp.persona, lg: talkLang || langOf(th) });
-      u.arTok = arTok; u.arId = arId; u.certTok = null; u.composedAt = Date.now(); u.composedSeq = (u.seq || 0) + 1; u.held = (check && !check.ok) || comp.ip ? { s: check && !check.ok ? check.score : null, i: check && !check.ok ? (check.issues || []).slice(0, 3) : [], r: comp.ip || null } : null; releaseWork(u);
+      u.arTok = arTok; u.arId = arId; u.certTok = null; u.composedAt = Date.now(); u.composedSeq = (u.seq || 0) + 1; u.held = (check && !check.ok) || comp.ip || ownPicture ? { s: check && !check.ok ? check.score : null, i: check && !check.ok ? (check.issues || []).slice(0, 3) : [], r: comp.ip || (ownPicture ? ((talkLang || langOf(th)) === 'en' ? 'the picture you uploaded' : 'アップロードした絵') : null) } : null; releaseWork(u);
       u.hackarsUrl = null; u.hackarsProjectId = null; u.playUrl = null; // a new character needs its own project, not the last one's link
       const spell = spellOf(comp.effect);
       const summary = usedModel
