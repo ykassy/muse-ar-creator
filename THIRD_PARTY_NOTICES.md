@@ -58,3 +58,7 @@ OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
 TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
+
+## model-viewer
+
+`public/try.html` and `public/gallery.html` load [@google/model-viewer](https://github.com/google/model-viewer) 3.5.0 from jsDelivr at run time, to show a model in the page. Apache License 2.0. It is not copied into this repository.

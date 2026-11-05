@@ -30,6 +30,10 @@
   .row{display:flex;gap:10px;flex-wrap:wrap}
   .big{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums}
   ul{margin:0;padding-left:20px;color:var(--sub);line-height:1.7}
+  model-viewer{width:100%;height:340px;background:#26263a;border-radius:12px;--poster-color:transparent}
+  .clips{display:flex;flex-wrap:wrap;gap:6px}
+  .clips button{background:#26263a;color:var(--ink);font-weight:500;font-size:13px;padding:6px 10px;border-radius:999px}
+  .clips button.on{background:var(--key);color:#1b1608}
   .who{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
   .who img{width:150px;height:150px;object-fit:contain;flex:none;background:#26263a;border-radius:12px}
   .who>div{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:6px}
@@ -73,6 +77,10 @@
   </section>
 
   <section class="card" id="made" hidden>
+    <div id="view" hidden>
+      <model-viewer id="mv" auto-rotate rotation-per-second="45deg" camera-controls autoplay animation-name="idle" interaction-prompt="none" shadow-intensity="0" alt=""></model-viewer>
+      <div class="clips" id="clips" style="margin-top:10px"></div>
+    </div>
     <div class="who">
       <img id="pic" alt="">
       <div>
@@ -241,6 +249,17 @@ function showMade(s) {
   $('name').textContent = s.characterName || s.title || '';
   $('persona').textContent = s.persona || '';
   if (s.preview) { $('pic').src = s.preview; $('pic').alt = s.characterName || ''; } else $('pic').hidden = true;
+  if (s.glb) {
+    // The model itself, turning in the page: drag to look behind it, press a clip to play it.
+    import('https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js').then(() => {
+      $('mv').src = s.glb; $('view').hidden = false; $('pic').hidden = true;
+      ['idle', 'happy', 'surprised', 'sad', 'angry', 'talk', 'dangle', 'land', 'zap'].forEach((c, i) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = c; if (!i) b.className = 'on';
+        b.onclick = () => { $('mv').animationName = c; $('mv').play(); document.querySelectorAll('#clips button').forEach((x) => x.classList.toggle('on', x === b)); };
+        $('clips').append(b);
+      });
+    }).catch(() => {});
+  }
   const c = s.selfCheck;
   const check = !c ? '' : c.redrawn && c.before ? T.redrawn(c.before.score, c.score) : T.checked(c.score);
   const u = s.usage || {};
